@@ -17,15 +17,31 @@ class LLMClient:
             self.base_url = "https://openrouter.helicone.ai/api/v1/chat/completions"
             self.headers["Helicone-Auth"] = f"Bearer {settings.HELICONE_API_KEY}"
 
-    async def call_llm(self, messages: List[Dict[str, str]], model: Optional[str] = None) -> str:
-        """Calls OpenRouter API with fallback logic."""
+    async def call_llm(
+        self, 
+        messages: List[Dict[str, str]], 
+        model: Optional[str] = None,
+        session_id: Optional[str] = None,
+        session_path: Optional[str] = None,
+        session_name: Optional[str] = None
+    ) -> str:
+        """Calls OpenRouter API with fallback logic and Helicone sessions."""
         model = model or settings.OPENROUTER_PRIMARY_MODEL
         
+        headers = self.headers.copy()
+        if settings.HELICONE_API_KEY:
+            if session_id:
+                headers["Helicone-Session-Id"] = session_id
+            if session_path:
+                headers["Helicone-Session-Path"] = session_path
+            if session_name:
+                headers["Helicone-Session-Name"] = session_name
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 response = await client.post(
                     self.base_url,
-                    headers=self.headers,
+                    headers=headers,
                     json={
                         "model": model,
                         "messages": messages
@@ -37,7 +53,13 @@ class LLMClient:
             except Exception as e:
                 print(f"Error calling primary model {model}: {e}")
                 if model != settings.OPENROUTER_FALLBACK_MODEL:
-                    return await self.call_llm(messages, model=settings.OPENROUTER_FALLBACK_MODEL)
+                    return await self.call_llm(
+                        messages, 
+                        model=settings.OPENROUTER_FALLBACK_MODEL,
+                        session_id=session_id,
+                        session_path=session_path,
+                        session_name=session_name
+                    )
                 raise e
 
     async def build_context(self, session: Dict[str, Any], lead_data: Dict[str, Any], message: str) -> List[Dict[str, str]]:

@@ -33,7 +33,12 @@ async def process_conversation(phone: str, message: str):
 
     # 4. Build context and call LLM
     messages = await llm_client.build_context(session, lead_data, message)
-    response_text = await llm_client.call_llm(messages)
+    response_text = await llm_client.call_llm(
+        messages,
+        session_id=phone,
+        session_path=f"/agent/{session['state']}",
+        session_name=f"WhatsApp Chat - {phone}"
+    )
 
     # 5. Chunk and send response
     chunks = chunk_message(response_text)

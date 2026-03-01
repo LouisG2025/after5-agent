@@ -18,7 +18,13 @@ async def extract_bant(phone: str, history: List[Dict[str, str]]):
     messages = [{"role": "system", "content": system_prompt}]
 
     try:
-        response_text = await llm_client.call_llm(messages, model=settings.OPENROUTER_BANT_MODEL)
+        response_text = await llm_client.call_llm(
+            messages, 
+            model=settings.OPENROUTER_BANT_MODEL,
+            session_id=phone,
+            session_path="/background/bant",
+            session_name=f"BANT Extraction - {phone}"
+        )
         # Clean response text in case LLM added markdown backticks
         response_text = response_text.replace("```json", "").replace("```", "").strip()
         bant_data = json.loads(response_text)
