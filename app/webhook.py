@@ -63,8 +63,9 @@ async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
 
     event = payload.get("event", payload.get("type", ""))
 
-    # Only handle new inbound messages
-    if "message" not in event:
+    # Bird fires: whatsapp.inbound, whatsapp.outbound, whatsapp.interaction, etc.
+    # We only want inbound (customer → us)
+    if not event.endswith(".inbound"):
         return {"status": "ignored", "reason": f"event:{event}"}
 
     message = payload.get("message", {})
