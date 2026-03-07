@@ -10,9 +10,9 @@ class Settings(BaseSettings):
 
     # OpenRouter
     OPENROUTER_API_KEY: str
-    OPENROUTER_PRIMARY_MODEL: str = "anthropic/claude-sonnet-4.6"
-    OPENROUTER_FALLBACK_MODEL: str = "openai/gpt-4.1"
-    OPENROUTER_BANT_MODEL: str = "openai/gpt-4.1-mini"
+    OPENROUTER_PRIMARY_MODEL: str = "openai/gpt-4o"
+    OPENROUTER_FALLBACK_MODEL: str = "openai/gpt-4o-mini"
+    OPENROUTER_BANT_MODEL: str = "openai/gpt-4o-mini"
 
     # Redis
     REDIS_URL: str
