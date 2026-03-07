@@ -1,24 +1,14 @@
+import json
 import logging
 import asyncio
-import httpx
 from fastapi import APIRouter, Request, BackgroundTasks
 from app.config import settings
 from app.redis_client import redis_client
 from app.conversation import process_conversation
-from app.messagebird_client import get_contact_phone, send_message
+from app.messagebird_client import get_contact_phone, _to_internal_phone
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# Bird API base
-_BIRD_BASE = "https://api.bird.com"
-
-
-def _headers() -> dict:
-    return {
-        "Authorization": f"AccessKey {settings.MESSAGEBIRD_API_KEY}",
-        "Accept": "application/json",
-    }
 
 
 async def _buffer_timeout_handler(phone: str):
@@ -37,10 +27,28 @@ async def _buffer_timeout_handler(phone: str):
 @router.post("/webhook")
 async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
     """
-    Receives Bird (MessageBird v2) Conversations webhook (JSON).
+    Receives Bird (formerly MessageBird) Channels webhook (JSON).
 
-    Bird fires webhooks for both inbound AND outbound messages.
-    We filter on direction to avoid infinite loops.
+    Bird webhook payload for whatsapp.inbound:
+    {
+      "event": "whatsapp.inbound",
+      "message": {
+        "id": "...",
+        "channelId": "...",
+        "direction": "incoming",        <- may or may not be present
+        "sender": {
+          "contact": {
+            "id": "...",
+            "identifierKey": "phonenumber",
+            "identifierValue": "+918160178327"
+          }
+        },
+        "body": {
+          "type": "text",
+          "text": { "text": "Hello" }
+        }
+      }
+    }
     """
     try:
         payload = await request.json()
@@ -48,75 +56,73 @@ async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.warning("Webhook: non-JSON body received")
         return {"status": "error", "reason": "invalid_json"}
 
-    # ── Bird v2 webhook payload structure ──────────────────────────────────
-    # {
-    #   "event": "message.created" | "message.updated" | ...
-    #   "workspace": {"id": "..."},
-    #   "contact":   {"id": "...", "identifierValue": "+447700900000"},
-    #   "channel":   {"id": "..."},
-    #   "message": {
-    #       "id": "...",
-    #       "direction": "incoming" | "outgoing",
-    #       "body": {"type": "text", "text": {"text": "..."}}
-    #   }
-    # }
+    # Full payload logged at DEBUG level for troubleshooting
+    logger.debug("Bird webhook payload: %s", json.dumps(payload)[:500])
 
     event = payload.get("event", payload.get("type", ""))
+    logger.info("Bird webhook event: %s", event)
 
-    # Bird fires: whatsapp.inbound, whatsapp.outbound, whatsapp.interaction, etc.
-    # We only want inbound (customer → us)
-    if not event.endswith(".inbound"):
+    # Only handle inbound events (we registered specifically for whatsapp.inbound)
+    # Also accept empty event string as fallback since we only subscribed to inbound
+    if event and not event.endswith(".inbound"):
+        logger.info("Ignoring non-inbound event: %s", event)
         return {"status": "ignored", "reason": f"event:{event}"}
 
-    message = payload.get("message", {})
-    contact  = payload.get("contact", {})
+    # Bird Channels API: message is nested under "message" key
+    message = payload.get("message", payload)  # fallback to root if no "message" key
 
-    # Filter outbound echoes — CRITICAL to prevent infinite loops
-    direction = message.get("direction", "")
-    if direction not in ("incoming", "received"):
-        return {"status": "ignored", "reason": "outbound_echo"}
+    message_id = message.get("id", "")
 
-    message_id   = message.get("id", "")
-    contact_id   = contact.get("id", "")
+    # ── Extract sender phone ────────────────────────────────────────────────
+    # Bird sends: message.sender.contact.identifierValue
+    sender_obj  = message.get("sender", {})
+    contact_obj = sender_obj.get("contact", {})
+    identifier  = contact_obj.get("identifierValue", "")
+    contact_id  = contact_obj.get("id", "")
 
-    # Extract text — Bird v2 body structure
-    body_obj   = message.get("body", {})
-    msg_type   = body_obj.get("type", "")
+    sender_phone = None
+    if identifier:
+        sender_phone = _to_internal_phone(identifier)
+        logger.info("Phone from identifierValue: %s", sender_phone)
+    elif contact_id:
+        sender_phone = await get_contact_phone(contact_id)
+        logger.info("Phone from Contacts API: %s", sender_phone)
+
+    if not sender_phone:
+        logger.error(
+            "Could not resolve phone. sender=%s contact=%s",
+            sender_obj, contact_obj
+        )
+        return {"status": "error", "reason": "phone_resolution_failed"}
+
+    # ── Extract message text ────────────────────────────────────────────────
+    body_obj = message.get("body", {})
+    msg_type = body_obj.get("type", "")
+
     if msg_type == "text":
         message_text = body_obj.get("text", {}).get("text", "")
+    elif msg_type == "":
+        # Fallback: try reading text directly (some older Bird formats)
+        message_text = message.get("text", {}).get("text", "") or message.get("content", {}).get("text", "")
     else:
-        # Non-text message (image, audio, etc.) — skip for now
+        logger.info("Unsupported message type: %s", msg_type)
         return {"status": "ignored", "reason": f"unsupported_type:{msg_type}"}
 
     if not message_text:
+        logger.warning("Empty message body from %s", sender_phone)
         return {"status": "ignored", "reason": "empty_body"}
 
-    # Dedup on message ID
+    # ── Deduplication ───────────────────────────────────────────────────────
     if message_id and await redis_client.check_dedup(message_id):
         logger.info("Duplicate message %s, ignoring", message_id)
         return {"status": "ignored", "reason": "duplicate"}
 
-    # Resolve sender phone
-    # Bird may include identifierValue directly in the contact object
-    sender_phone = None
-    identifier = contact.get("identifierValue", "")
-    if identifier:
-        from app.messagebird_client import _to_internal_phone
-        sender_phone = _to_internal_phone(identifier)
-    elif contact_id:
-        sender_phone = await get_contact_phone(contact_id)
+    logger.info("Bird inbound from %s: %.80s…", sender_phone, message_text)
 
-    if not sender_phone:
-        logger.error("Could not resolve phone for contact %s", contact_id)
-        return {"status": "error", "reason": "phone_resolution_failed"}
-
-    logger.info("Bird message from %s: %.60s…", sender_phone, message_text)
-
-    # Buffer message + set/reset timer
+    # ── Buffer + schedule ───────────────────────────────────────────────────
     await redis_client.buffer_message(sender_phone, message_text)
     await redis_client.set_buffer_timer(sender_phone)
 
-    # Schedule processing — return 200 immediately
     background_tasks.add_task(_buffer_timeout_handler, sender_phone)
 
     return {"status": "ok"}
