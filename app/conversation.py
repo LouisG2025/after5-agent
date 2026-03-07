@@ -2,7 +2,7 @@ import asyncio
 from app.llm import llm_client
 from app.redis_client import redis_client
 from app.supabase_client import supabase_client
-from app.messagebird_client import send_message, send_chunked_messages, reply_to_conversation, reply_chunked_messages
+from app.messagebird_client import send_message, send_chunked_messages, reply_to_conversation, reply_chunked_messages, send_typing_indicator
 from app.chunker import chunk_message, calculate_typing_delay
 from app.state_machine import check_transition
 from app.bant import extract_bant
@@ -29,6 +29,11 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
 
     # 3. Log inbound message
     await supabase_client.log_message(phone, "inbound", message, session["state"], source=source)
+
+    # 3.1 Show typing and thinking delay
+    await send_typing_indicator(phone)
+    # Simulate thinking time (1.5s to 3s)
+    await asyncio.sleep(2.0)
 
     # 4. Build context and call LLM
     messages = await llm_client.build_context(session, lead_data, message)

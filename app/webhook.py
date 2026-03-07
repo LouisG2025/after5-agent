@@ -5,16 +5,22 @@ from fastapi import APIRouter, Request, BackgroundTasks
 from app.config import settings
 from app.redis_client import redis_client
 from app.conversation import process_conversation
-from app.messagebird_client import get_contact_phone, _to_internal_phone, send_message
+from app.messagebird_client import get_contact_phone, _to_internal_phone, send_message, mark_as_read
 from app.stt import process_voice_note
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _buffer_timeout_handler(phone: str):
+async def _buffer_timeout_handler(phone: str, last_message_id: str = ""):
     """Waits for input buffer to expire, then processes combined message."""
-    await asyncio.sleep(settings.INPUT_BUFFER_SECONDS)
+    # Simulation: Someone "opens" the notification after a short delay
+    if last_message_id and settings.MARK_AS_READ_DELAY > 0:
+        await asyncio.sleep(settings.MARK_AS_READ_DELAY)
+        await mark_as_read(last_message_id)
+
+    # Wait for the full input buffer window (configured in settings)
+    await asyncio.sleep(settings.INPUT_BUFFER_SECONDS - settings.MARK_AS_READ_DELAY if settings.MARK_AS_READ_DELAY < settings.INPUT_BUFFER_SECONDS else 0.5)
 
     while await redis_client.is_timer_active(phone):
         await asyncio.sleep(0.5)
@@ -180,6 +186,6 @@ async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
     # If a voice note is part of a buffered sequence, it will be treated as text in combined.
     # We pass 'source' to process_conversation if we called it directly, 
     # but here it goes to buffer. For now, we'll just let it be.
-    background_tasks.add_task(_buffer_timeout_handler, sender_phone)
+    background_tasks.add_task(_buffer_timeout_handler, sender_phone, message_id)
 
     return {"status": "ok"}

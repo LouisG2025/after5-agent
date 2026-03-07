@@ -95,6 +95,58 @@ async def send_message(to: str, body: str) -> dict | None:
         return None
 
 
+async def mark_as_read(message_id: str) -> bool:
+    """
+    Mark a WhatsApp message as read via Bird Channels API.
+    
+    Args:
+        message_id: The ID of the message to mark as read.
+        
+    Returns:
+        True if successful, False otherwise.
+    """
+    if not message_id:
+        return False
+        
+    payload = {
+        "status": "read"
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.patch(
+                _workspace_channel_url(f"/messages/{message_id}"),
+                headers=_get_headers(),
+                json=payload,
+            )
+            if response.status_code in (200, 204):
+                logger.debug("Bird: message %s marked as read", message_id)
+                return True
+            else:
+                logger.error("Bird mark_as_read failed: %s — %s", response.status_code, response.text)
+                return False
+    except Exception as exc:
+        logger.error("Bird mark_as_read error: %s", exc)
+        return False
+
+
+async def send_typing_indicator(to: str) -> bool:
+    """
+    Simulate a typing indicator. 
+    Note: Bird Channels v2 may not have a dedicated typing endpoint, 
+    so we might just log this for now or find the specific platform call.
+    """
+    if not settings.SHOW_TYPING_INDICATOR:
+        return False
+        
+    bird_phone = _to_bird_phone(to)
+    logger.debug("Bird: showing typing indicator for %s", bird_phone)
+    
+    # Placeholder for actual API call if supported by Bird v2
+    # Many WhatsApp APIs use a 'typing' status in the messages endpoint
+    return True
+
+
 async def reply_to_conversation(conversation_id: str, body: str) -> dict | None:
     """
     Reply to a Bird conversation by ID.
@@ -122,6 +174,8 @@ async def send_chunked_messages(to: str, chunks: list[str]) -> None:
     """
     for i, chunk in enumerate(chunks):
         if i > 0:
+            # Show typing between chunks
+            await send_typing_indicator(to)
             delay = calculate_typing_delay(chunk)
             await asyncio.sleep(delay)
         await send_message(to, chunk)

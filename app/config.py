@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     VOICE_NOTE_ACKNOWLEDGE: bool = True
     VOICE_NOTE_ACK_MESSAGE: str = "" # "Got your voice note, let me listen..."
 
+    # Human-like Behavior
+    MARK_AS_READ_DELAY: float = 2.0
+    SHOW_TYPING_INDICATOR: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 @lru_cache
