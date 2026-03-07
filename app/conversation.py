@@ -1,4 +1,5 @@
 import asyncio
+from app.config import settings
 from app.llm import llm_client
 from app.redis_client import redis_client
 from app.supabase_client import supabase_client
