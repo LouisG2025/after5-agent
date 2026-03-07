@@ -2,7 +2,7 @@ import asyncio
 from fastapi import APIRouter, Body, BackgroundTasks
 from app.models import LeadCreate
 from app.supabase_client import supabase_client
-from app.twilio_client import twilio_client
+from app.messagebird_client import send_message
 from app.redis_client import redis_client
 from app.models import ConversationState
 
@@ -28,7 +28,7 @@ async def send_initial_outreach(name: str, phone: str, company: str):
     
     # 4. Send first message
     first_message = f"Hey {name}, this is Albert from After5 Digital. I saw your inquiry about {company} — wanted to reach out and see how we can help!"
-    twilio_client.send_message(phone, first_message)
+    await send_message(phone, first_message)
     
     # 5. Log and update
     await supabase_client.update_lead_status(phone, "outreach_sent")

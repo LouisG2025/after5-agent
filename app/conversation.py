@@ -2,17 +2,16 @@ import asyncio
 from app.llm import llm_client
 from app.redis_client import redis_client
 from app.supabase_client import supabase_client
-from app.twilio_client import twilio_client
+from app.messagebird_client import send_message, send_chunked_messages, reply_to_conversation, reply_chunked_messages
 from app.chunker import chunk_message
 from app.state_machine import check_transition
 from app.bant import extract_bant
 from app.models import ConversationState
 from typing import Dict, Any
 
-async def process_conversation(phone: str, message: str):
+async def process_conversation(phone: str, message: str, conversation_id: str = ""):
     """Main conversation engine logic."""
-    # 1. Fire typing indicator
-    await twilio_client.send_typing_indicator(phone)
+    # (typing indicator removed — was a no-op in Twilio; MessageBird equivalent not needed)
 
     # 2. Get session and lead data
     session = await redis_client.get_session(phone)
@@ -49,7 +48,19 @@ async def process_conversation(phone: str, message: str):
 
     # 5. Chunk and send response
     chunks = chunk_message(response_text)
-    await twilio_client.send_chunked_messages(phone, chunks)
+
+    if len(chunks) == 1:
+        # Single message — prefer reply_to_conversation if we have the ID
+        if conversation_id:
+            await reply_to_conversation(conversation_id, chunks[0])
+        else:
+            await send_message(phone, chunks[0])
+    else:
+        # Multiple chunks — send with typing delays
+        if conversation_id:
+            await reply_chunked_messages(conversation_id, chunks)
+        else:
+            await send_chunked_messages(phone, chunks)
 
     # 6. Update session history
     # Add user message

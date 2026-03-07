@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request
 
 from app.redis_client import redis_client
 from app.supabase_client import supabase_client
-from app.twilio_client import twilio_client
+from app.messagebird_client import send_chunked_messages
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ def normalize_phone(raw: str) -> str:
     """
     phone = raw.strip()
 
-    # Already in Twilio format
+    # Already in internal whatsapp: format
     if phone.startswith("whatsapp:"):
         return phone
 
@@ -129,7 +129,11 @@ async def calendly_webhook(request: Request):
 
     # ── 3. Send WhatsApp confirmation ────────────────────────────────────────
     try:
-        twilio_client.send_message(phone, CONFIRMATION_MESSAGE)
+        chunks = [
+            "Seen you've booked it in",
+            "I'll give Louis some details to prep beforehand. Speak soon."
+        ]
+        await send_chunked_messages(phone, chunks)
         logger.info("WhatsApp confirmation sent to %s", phone)
     except Exception as exc:
         logger.error("Failed to send WhatsApp confirmation to %s: %s", phone, exc)

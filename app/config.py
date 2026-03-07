@@ -2,10 +2,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 class Settings(BaseSettings):
-    # Twilio
-    TWILIO_ACCOUNT_SID: str
-    TWILIO_AUTH_TOKEN: str
-    TWILIO_WHATSAPP_NUMBER: str
+    # MessageBird
+    MESSAGEBIRD_API_KEY: str
+    MESSAGEBIRD_CHANNEL_ID: str
+    MESSAGEBIRD_WHATSAPP_NUMBER: str = ""  # for reference only
 
     # OpenRouter
     OPENROUTER_API_KEY: str
