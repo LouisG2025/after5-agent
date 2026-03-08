@@ -60,8 +60,8 @@ class LLMClient:
         self, 
         messages: List[Dict[str, str]], 
         model: Optional[str] = None,
-        lead_id: str = "unknown",
-        conversation_state: str = "unknown",
+        lead_id: Optional[str] = None,
+        conversation_state: str = "Opening",
         phone: str = "",
         company: str = "",
         **kwargs

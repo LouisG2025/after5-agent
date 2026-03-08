@@ -34,7 +34,7 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         }
     
     lead_data = session.get("lead_data", {})
-    lead_id = lead_data.get("id", "unknown")
+    lead_id = lead_data.get("id")
 
     # 3. Log inbound message (already done in webhook.py for raw messages, 
     # but process_conversation might be called for combined messages)
