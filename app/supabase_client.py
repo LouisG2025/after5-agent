@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 
 class SupabaseClient:
     def __init__(self):
-        self.client: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        self.client: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
 
     async def create_lead(self, name: str, phone: str, company: str) -> Dict[str, Any]:
         """Inserts into leads table."""

@@ -10,11 +10,17 @@ router = APIRouter()
 
 async def send_initial_outreach(name: str, phone: str, company: str):
     """Sends the first outbound message after a delay."""
-    # 1. Save to Supabase
-    await supabase_client.create_lead(name, phone, company)
+    from app.tracker import AlbertTracker
+    tracker = AlbertTracker()
+
+    # 1. Save to Supabase via Tracker
+    lead = tracker.get_lead_by_phone(phone)
+    if not lead:
+        lead = tracker.create_lead(phone=phone, first_name=name, company=company)
     
-    # 2. Start outreach sequence (delay for realism if needed, or follow instructions)
-    # instructions say wait 30 seconds
+    lead_id = lead.get("id")
+
+    # 2. Start outreach sequence
     await asyncio.sleep(30)
     
     # 3. Initialize session
@@ -22,7 +28,7 @@ async def send_initial_outreach(name: str, phone: str, company: str):
         "state": ConversationState.OPENING,
         "history": [],
         "turn_count": 0,
-        "lead_data": {"name": name, "phone": phone, "company": company}
+        "lead_data": lead
     }
     await redis_client.save_session(phone, session)
     
@@ -30,9 +36,9 @@ async def send_initial_outreach(name: str, phone: str, company: str):
     first_message = f"Hey {name}, this is Albert from After5 Digital. I saw your inquiry about {company} — wanted to reach out and see how we can help!"
     await send_message(phone, first_message)
     
-    # 5. Log and update
-    await supabase_client.update_lead_status(phone, "outreach_sent")
-    await supabase_client.log_message(phone, "outbound", first_message, ConversationState.OPENING)
+    # 5. Log and update via Tracker
+    tracker.log_outbound(lead_id, first_message)
+    tracker.update_state(lead_id, "Opening")
     
     # Initial history
     await redis_client.add_to_history(phone, "assistant", first_message)

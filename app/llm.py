@@ -1,82 +1,117 @@
-import httpx
 import os
+import time
+import httpx
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
+from openai import AsyncOpenAI
 from app.config import settings
+from app.tracker import AlbertTracker
+
+tracker = AlbertTracker()
 
 class LLMClient:
     def __init__(self):
         self.api_key = settings.OPENROUTER_API_KEY
-        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
-        self.headers = {
-            "Authorization": f"Bearer {self.api_key}",
+        self.helicone_key = settings.HELICONE_API_KEY
+
+    def _get_client(self, lead_id: str, conversation_state: str, phone: str = "", company: str = "") -> AsyncOpenAI:
+        """Helper to create a Helicone-instrumented OpenAI client."""
+        headers = {
             "HTTP-Referer": "https://after5.digital",
-            "X-Title": "After5 Agent"
+            "X-Title": "Albert by After5",
         }
         
-        if settings.HELICONE_API_KEY:
-            self.base_url = "https://openrouter.helicone.ai/api/v1/chat/completions"
-            self.headers["Helicone-Auth"] = f"Bearer {settings.HELICONE_API_KEY}"
+        if self.helicone_key:
+            headers.update({
+                "Helicone-Auth": f"Bearer {self.helicone_key}",
+                "Helicone-User-Id": lead_id,
+                "Helicone-Session-Id": f"conv_{lead_id}",
+                "Helicone-Property-Lead-Id": lead_id,
+                "Helicone-Property-Phone": phone,
+                "Helicone-Property-Company": company,
+                "Helicone-Property-State": conversation_state,
+                "Helicone-Property-Agent": "Albert",
+                "Helicone-Property-Platform": "After5",
+            })
+            base_url = "https://openrouter.helicone.ai/api/v1"
+        else:
+            base_url = "https://openrouter.ai/api/v1"
+
+        return AsyncOpenAI(
+            base_url=base_url,
+            api_key=self.api_key,
+            default_headers=headers
+        )
+
+    def _estimate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+        """Estimates USD cost based on token usage."""
+        pricing = {
+            "openai/gpt-4o":               {"prompt": 2.50,  "completion": 10.00},
+            "openai/gpt-4o-mini":          {"prompt": 0.15,  "completion": 0.60},
+            "anthropic/claude-3.5-sonnet": {"prompt": 3.00,  "completion": 15.00},
+            "anthropic/claude-3-haiku":    {"prompt": 0.25,  "completion": 1.25},
+        }
+        # Default to gpt-4o rates if model not found
+        rates = pricing.get(model, {"prompt": 2.50, "completion": 10.00})
+        total = (prompt_tokens * rates["prompt"] + completion_tokens * rates["completion"]) / 1_000_000
+        return round(total, 6)
 
     async def call_llm(
         self, 
         messages: List[Dict[str, str]], 
         model: Optional[str] = None,
-        session_id: Optional[str] = None,
-        session_path: Optional[str] = None,
-        session_name: Optional[str] = None,
-        user_id: Optional[str] = None,
-        properties: Optional[Dict[str, str]] = None,
-        cache_enabled: bool = False
+        lead_id: str = "unknown",
+        conversation_state: str = "unknown",
+        phone: str = "",
+        company: str = "",
+        **kwargs
     ) -> str:
-        """Calls OpenRouter API with fallback logic and Helicone metrics/caching."""
+        """Calls OpenRouter via Helicone proxy and logs to Supabase."""
         model = model or settings.OPENROUTER_PRIMARY_MODEL
+        client = self._get_client(lead_id, conversation_state, phone, company)
         
-        headers = self.headers.copy()
-        if settings.HELICONE_API_KEY:
-            if session_id:
-                headers["Helicone-Session-Id"] = session_id
-            if session_path:
-                headers["Helicone-Session-Path"] = session_path
-            if session_name:
-                headers["Helicone-Session-Name"] = session_name
-            if user_id:
-                headers["Helicone-User-Id"] = user_id
-            if properties:
-                for key, value in properties.items():
-                    headers[f"Helicone-Property-{key}"] = str(value)
-            if cache_enabled:
-                headers["Helicone-Cache-Enabled"] = "true"
-                headers["Cache-Control"] = "max-age=3600"
+        start_time = time.time()
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                **kwargs
+            )
+            latency_ms = int((time.time() - start_time) * 1000)
+            
+            content = response.choices[0].message.content
+            usage = response.usage
+            cost = self._estimate_cost(model, usage.prompt_tokens, usage.completion_tokens)
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                response = await client.post(
-                    self.base_url,
-                    headers=headers,
-                    json={
-                        "model": model,
-                        "messages": messages
-                    }
+            # Log to Supabase Tracker
+            tracker.log_llm_call(
+                lead_id=lead_id,
+                response_id=response.id,
+                model=model,
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                cost_usd=cost,
+                latency_ms=latency_ms,
+                conversation_state=conversation_state,
+            )
+            
+            return content
+
+        except Exception as e:
+            print(f"[LLM Error] {model} call failed: {e}")
+            # Simple fallback if primary fails
+            if model != settings.OPENROUTER_FALLBACK_MODEL:
+                print(f"[LLM] Falling back to {settings.OPENROUTER_FALLBACK_MODEL}")
+                return await self.call_llm(
+                    messages, 
+                    model=settings.OPENROUTER_FALLBACK_MODEL,
+                    lead_id=lead_id,
+                    conversation_state=conversation_state,
+                    phone=phone,
+                    company=company,
+                    **kwargs
                 )
-                response.raise_for_status()
-                print(f"[LLM] Successfully called model: {model}")
-                data = response.json()
-                return data['choices'][0]['message']['content']
-            except Exception as e:
-                print(f"Error calling primary model {model}: {e}")
-                if model != settings.OPENROUTER_FALLBACK_MODEL:
-                    return await self.call_llm(
-                        messages, 
-                        model=settings.OPENROUTER_FALLBACK_MODEL,
-                        session_id=session_id,
-                        session_path=session_path,
-                        session_name=session_name,
-                        user_id=user_id,
-                        properties=properties,
-                        cache_enabled=cache_enabled
-                    )
-                raise e
+            raise e
 
     async def build_context(self, session: Dict[str, Any], lead_data: Dict[str, Any], message: str) -> List[Dict[str, str]]:
         """Builds the full LLM context."""
@@ -87,7 +122,7 @@ class LLMClient:
         # Replace placeholders
         current_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-        # Format conversation history for the system prompt placeholder
+        # Format conversation history
         history = session.get("history", [])
         if history:
             history_lines = []
@@ -99,7 +134,7 @@ class LLMClient:
             formatted_history = "(no conversation yet)"
 
         replacements = {
-            "{{lead_name}}": lead_data.get("name", "there"),
+            "{{lead_name}}": lead_data.get("name", lead_data.get("first_name", "there")),
             "{{lead_company}}": lead_data.get("company", "your company"),
             "{{current_state}}": session.get("state", "opening"),
             "{{calendly_link}}": settings.CALENDLY_LINK,
@@ -112,12 +147,8 @@ class LLMClient:
             system_prompt = system_prompt.replace(key, str(value))
 
         messages = [{"role": "system", "content": system_prompt}]
-        
-        # Add history
         for msg in session.get("history", []):
             messages.append(msg)
-            
-        # Add current message
         messages.append({"role": "user", "content": message})
         
         return messages

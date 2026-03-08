@@ -75,72 +75,47 @@ def extract_phone_from_payload(payload: dict) -> str | None:
 
 @router.post("/calendly-webhook")
 async def calendly_webhook(request: Request):
-    """Handle Calendly webhook events (invitee.created)."""
+    """Handle Calendly webhook events."""
     body = await request.json()
-
     event = body.get("event")
-    logger.info("Received Calendly event: %s", event)
-
-    if event != "invitee.created":
-        logger.info("Ignoring non-invitee.created event: %s", event)
-        return {"status": "ignored", "reason": "event_not_handled"}
-
     payload = body.get("payload", {})
+    
+    from app.tracker import AlbertTracker
+    tracker = AlbertTracker()
 
-    # ── Extract invitee details ──────────────────────────────────────────────
-    name = payload.get("name", "")
-    email = payload.get("email", "")
-    scheduled_event = payload.get("scheduled_event", {})
-    event_type = scheduled_event.get("name", "")
-    start_time = scheduled_event.get("start_time", "")
-
-    # ── Extract & normalise phone ────────────────────────────────────────────
+    # Extract & normalise phone
     raw_phone = extract_phone_from_payload(payload)
     if not raw_phone:
-        logger.warning("No phone number found in Calendly payload for %s (%s)", name, email)
         return {"status": "error", "reason": "phone_not_found"}
-
     phone = normalize_phone(raw_phone)
-    logger.info("Calendly booking for %s | phone=%s | event=%s | start=%s", name, phone, event_type, start_time)
+    
+    lead = tracker.get_lead_by_phone(phone)
+    event_uri = payload.get("event") # Calendly often uses event URI as ID
 
-    booking_details = {
-        "name": name,
-        "email": email,
-        "event_type": event_type,
-        "start_time": start_time,
-    }
+    if event == "invitee.created":
+        scheduled_at = payload.get("scheduled_event", {}).get("start_time")
+        if lead:
+            tracker.confirm_booking(
+                lead_id=lead["id"],
+                calendly_event_id=event_uri,
+                scheduled_at=scheduled_at
+            )
+        
+        # ── 3. Send WhatsApp confirmation ──
+        try:
+            chunks = [
+                "Seen you've booked it in",
+                "I'll give Louis some details to prep beforehand. Speak soon."
+            ]
+            await send_chunked_messages(phone, chunks)
+        except Exception as exc:
+            logger.error("Failed to send WhatsApp confirmation to %s: %s", phone, exc)
 
-    # ── 1. Update Supabase lead status ───────────────────────────────────────
-    try:
-        await supabase_client.update_lead_status(phone, "booked")
-        logger.info("Supabase lead status updated to 'booked' for %s", phone)
-    except Exception as exc:
-        logger.error("Failed to update Supabase lead status for %s: %s", phone, exc)
+    elif event == "invitee.canceled":
+        if lead:
+            tracker.cancel_booking(
+                lead_id=lead["id"],
+                calendly_event_id=event_uri
+            )
 
-    # ── 2. Update Redis session ──────────────────────────────────────────────
-    try:
-        session = await redis_client.get_session(phone) or {}
-        session["state"] = "confirmed"
-        session["booking_details"] = booking_details
-        await redis_client.save_session(phone, session)
-        logger.info("Redis session updated to 'confirmed' for %s", phone)
-    except Exception as exc:
-        logger.error("Failed to update Redis session for %s: %s", phone, exc)
-
-    # ── 3. Send WhatsApp confirmation ────────────────────────────────────────
-    try:
-        chunks = [
-            "Seen you've booked it in",
-            "I'll give Louis some details to prep beforehand. Speak soon."
-        ]
-        await send_chunked_messages(phone, chunks)
-        logger.info("WhatsApp confirmation sent to %s", phone)
-    except Exception as exc:
-        logger.error("Failed to send WhatsApp confirmation to %s: %s", phone, exc)
-
-    return {
-        "status": "ok",
-        "phone": phone,
-        "event_type": event_type,
-        "start_time": start_time,
-    }
+    return {"status": "ok"}

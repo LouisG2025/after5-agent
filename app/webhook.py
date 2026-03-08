@@ -180,6 +180,17 @@ async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.info("Duplicate message %s, ignoring", message_id)
         return {"status": "ignored", "reason": "duplicate"}
 
+    # ── Tracking ────────────────────────────────────────────────────────────
+    from app.tracker import AlbertTracker
+    tracker = AlbertTracker()
+    
+    lead = tracker.get_lead_by_phone(sender_phone)
+    if not lead:
+        lead = tracker.create_lead(phone=sender_phone)
+    
+    if lead:
+        tracker.log_inbound(lead["id"], message_text)
+
     logger.info("Bird inbound from %s: %.80s…", sender_phone, message_text)
 
     # ── Buffer + schedule ───────────────────────────────────────────────────
