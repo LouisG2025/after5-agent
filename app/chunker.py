@@ -36,12 +36,23 @@ def chunk_message(text: str) -> list[str]:
             chunks = chunks[:2] + [" ".join(chunks[2:])]
         return chunks if chunks else [text.strip()]
     
-    # Step 3: Short message — no chunking needed
-    if len(text) <= 160:
-        return [text.strip()]
+    # Step 3: Split at natural sentence boundaries (. or ?)
+    # This makes it feel more like a human typing multiple messages
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
     
-    # Step 4: Long message without markers — split at sentence boundaries
-    return _split_at_sentences(text)
+    # Filter out empty strings
+    chunks = [s.strip() for s in sentences if s.strip()]
+    
+    # If no punctuation was found or it's just one chunk, return as is
+    if len(chunks) <= 1:
+        return [text.strip()]
+        
+    # Enforce max 3 chunks for flow safety
+    if len(chunks) > 3:
+        # Keep first two, merge the rest into the third
+        chunks = [chunks[0], chunks[1], " ".join(chunks[2:])]
+        
+    return chunks
 
 
 def _split_at_sentences(text: str) -> list[str]:
