@@ -28,14 +28,15 @@ async def download_audio(audio_url: str) -> bytes | None:
         if "media.messagebird.com" not in audio_url:
             headers["Authorization"] = f"AccessKey {settings.MESSAGEBIRD_API_KEY}"
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            logger.info(f"Downloading audio from: {audio_url}")
             response = await client.get(audio_url, headers=headers)
             
             if response.status_code == 200:
                 logger.info(f"Audio downloaded: {len(response.content)} bytes")
                 return response.content
             else:
-                logger.error(f"Audio download failed: {response.status_code}")
+                logger.error(f"Audio download failed: {response.status_code} - {response.text}")
                 return None
                 
     except Exception as e:
