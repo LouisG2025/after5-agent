@@ -18,7 +18,13 @@ def chunk_message(text: str) -> list[str]:
     - Strip empty chunks
     - Each chunk must be non-empty after stripping
     - Never split mid-sentence
+    - FAIL-SAFE: Programmatically remove dashes/hyphens
     """
+    
+    # Fail-safe: Remove all dashes and hyphens (user-requested strict rule)
+    # Replacing with a space or nothing depending on context isn't perfect, 
+    # but the prompt handles the "to" conversion. This is to catch accidental ones.
+    text = text.replace(" - ", ", ").replace("-", " ")
     
     # Step 1: Check for ||| separators (primary method — LLM outputs these)
     if "|||" in text:
