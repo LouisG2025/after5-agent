@@ -29,3 +29,22 @@ def chunk_message(text: str) -> list:
         chunks = chunks[:2] + [merged_tail]
         
     return chunks if chunks else [text.strip()]
+
+
+def calculate_typing_delay(text: str) -> float:
+    """
+    Returns a realistic typing delay (in seconds) based on character count.
+    Used for simulating a human typing on WhatsApp.
+    """
+    # Avg: 200 CPM (chars per minute) = ~3.3 chars per second
+    # We use a slightly faster 8 chars/sec to keep UX snappy
+    delay = len(text) / 8.0
+    # Cap delay at 4 seconds per message
+    return min(delay, 4.0)
+
+def calculate_thinking_delay() -> float:
+    """
+    Returns a random thinking delay for the FIRST chunk.
+    """
+    import random
+    return random.uniform(3.0, 5.0)
