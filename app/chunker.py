@@ -1,4 +1,5 @@
 import re
+import random
 
 def chunk_message(text: str) -> list:
     """
@@ -46,5 +47,4 @@ def calculate_thinking_delay() -> float:
     """
     Returns a random thinking delay for the FIRST chunk.
     """
-    import random
     return random.uniform(3.0, 5.0)

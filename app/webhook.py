@@ -138,7 +138,3 @@ async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
     except Exception as e:
         logger.critical("[Webhook] 🚨 CRITICAL WEBHOOK FAILURE: %s", e, exc_info=True)
         return {"status": "error", "reason": str(e)}
-
-    except Exception as e:
-        logger.critical("[Webhook] 🚨 CRITICAL WEBHOOK FAILURE: %s", e, exc_info=True)
-        return {"status": "error", "reason": str(e)}
