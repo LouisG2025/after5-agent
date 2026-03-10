@@ -96,19 +96,24 @@ async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
         msg_type = body_obj.get("type", "text")
         message_text = ""
 
+        logger.info("[Webhook] Inbound message type: %s", msg_type)
         if msg_type == "text":
             message_text = body_obj.get("text", {}).get("text", "")
         elif msg_type == "audio":
             audio_url = body_obj.get("audio", {}).get("url", "")
+            logger.info("[Webhook] Audio message detected: %s", audio_url)
             if audio_url:
                 message_text = await process_voice_note(audio_url)
+                logger.info("[Webhook] Translated voice note: %s", message_text)
         elif msg_type == "file":
             files = body_obj.get("file", {}).get("files", [])
             for f in files:
                 if f.get("contentType", "").startswith("audio/"):
                     audio_url = f.get("mediaUrl", "") or f.get("url", "")
+                    logger.info("[Webhook] Audio file detected: %s", audio_url)
                     if audio_url:
                         message_text = await process_voice_note(audio_url)
+                        logger.info("[Webhook] Translated voice note file: %s", message_text)
                     break
         elif msg_type == "":
             message_text = message.get("text", {}).get("text", "") or message.get("content", {}).get("text", "")

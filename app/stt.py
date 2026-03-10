@@ -65,7 +65,7 @@ async def transcribe_audio(audio_bytes: bytes, filename: str = "voice.ogg") -> s
         }
         data = {
             "model": "whisper-1",
-            "language": "en",  # Optimize for English. Remove for auto-detect.
+            # "language": "en",  # Auto-detect for multi-lang support
         }
         headers = {
             "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
