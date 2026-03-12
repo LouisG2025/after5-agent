@@ -9,13 +9,14 @@ class Settings(BaseSettings):
     MESSAGEBIRD_CHANNEL_ID: str
     MESSAGEBIRD_WHATSAPP_NUMBER: str = ""  # for reference only
 
+
     # WhatsApp Cloud API (Meta)
-    WHATSAPP_PHONE_NUMBER_ID: str = ""
-    WHATSAPP_BUSINESS_ACCOUNT_ID: str = ""
-    WHATSAPP_ACCESS_TOKEN: str = ""
-    WHATSAPP_VERIFY_TOKEN: str = "after5_verify_token"
-    WHATSAPP_API_VERSION: str = "v22.0"
-    MESSAGING_PROVIDER: str = "messagebird" # "messagebird" or "whatsapp_cloud"
+    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+    WHATSAPP_BUSINESS_ACCOUNT_ID: str = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
+    WHATSAPP_ACCESS_TOKEN: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+    WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "after5_verify_token")
+    WHATSAPP_API_VERSION: str = os.getenv("WHATSAPP_API_VERSION", "v22.0")
+    MESSAGING_PROVIDER: str = os.getenv("MESSAGING_PROVIDER", "messagebird") # "messagebird" or "whatsapp_cloud"
 
     # OpenRouter
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
@@ -59,6 +60,8 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings():
-    return Settings()
+    s = Settings()
+    print(f"[Config] 🛠️ Active Messaging Provider: {s.MESSAGING_PROVIDER}", flush=True)
+    return s
 
 settings = get_settings()
