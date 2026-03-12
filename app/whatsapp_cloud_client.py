@@ -117,7 +117,7 @@ async def send_typing_indicator(to: str) -> bool:
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": cloud_phone,
-        "sender_action": "typing_on"
+        "typing_indicator": {"type": "text"}
     }
     
     try:
