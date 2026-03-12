@@ -128,6 +128,9 @@ async def send_typing_indicator(to: str) -> bool:
                 headers=_get_headers(),
                 json=payload,
             )
+            if response.status_code not in (200, 204, 202):
+                logger.error("WhatsApp Cloud typing indicator failed: %s - %s", response.status_code, response.text)
+                print(f"[Typing] ❌ Failed: {response.text}", flush=True)
             return response.status_code in (200, 204, 202)
     except Exception as exc:
         logger.error("WhatsApp Cloud typing indicator error: %s", exc)
