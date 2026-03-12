@@ -70,6 +70,9 @@ async def combined_webhook(request: Request, background_tasks: BackgroundTasks):
             
         # Fallback to MessageBird
         return await bird_webhook(payload, background_tasks)
+    except Exception as e:
+        logger.critical("[Webhook] combined_webhook failure: %s", e, exc_info=True)
+        return {"status": "error", "reason": str(e)}
 
 async def handle_whatsapp_cloud_webhook(payload: dict, background_tasks: BackgroundTasks):
     """Handle inbound messages from WhatsApp Cloud API."""
@@ -107,7 +110,7 @@ async def handle_whatsapp_cloud_webhook(payload: dict, background_tasks: Backgro
         return {"status": "error"}
 
 async def bird_webhook(payload: dict, background_tasks: BackgroundTasks):
-
+    try:
         event = payload.get("event", payload.get("type", ""))
         if event and not event.endswith(".inbound"):
             return {"status": "ignored", "reason": f"event:{event}"}
@@ -146,6 +149,10 @@ async def bird_webhook(payload: dict, background_tasks: BackgroundTasks):
 
         await process_inbound(sender_phone, message_text, message_id, conversation_id, background_tasks)
         return {"status": "ok"}
+    except Exception as e:
+        logger.error("Bird webhook error: %s", e)
+        return {"status": "error"}
+
 
 async def process_inbound(sender_phone: str, message_text: str, message_id: str, conversation_id: str, background_tasks: BackgroundTasks):
     try:
