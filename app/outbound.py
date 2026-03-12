@@ -2,7 +2,7 @@ import asyncio
 from fastapi import APIRouter, Body, BackgroundTasks
 from app.models import LeadCreate
 from app.supabase_client import supabase_client
-from app.messagebird_client import send_message
+from app.messaging import send_message
 from app.redis_client import redis_client
 from app.models import ConversationState
 

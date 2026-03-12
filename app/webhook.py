@@ -2,12 +2,13 @@ import json
 import logging
 import asyncio
 from datetime import datetime, timezone
-from fastapi import APIRouter, Request, BackgroundTasks
+from fastapi import APIRouter, Request, BackgroundTasks, Response, Query
 from app.models import ConversationState
 from app.config import settings
 from app.redis_client import redis_client
 from app.conversation import process_conversation
-from app.messagebird_client import get_contact_phone, _to_internal_phone, send_message, mark_as_read
+from app.messagebird_client import get_contact_phone as bird_get_contact, _to_internal_phone as bird_to_internal, send_message as bird_send, mark_as_read as bird_mark
+from app.whatsapp_cloud_client import _to_internal_phone as cloud_to_internal
 from app.stt import process_voice_note
 
 logger = logging.getLogger(__name__)
@@ -40,12 +41,22 @@ async def _buffer_timeout_handler(phone: str, batch_id: str, conversation_id: st
 
 
 @router.get("/webhook")
-async def test_webhook():
+async def verify_webhook(
+    hub_mode: str = Query(None, alias="hub.mode"),
+    hub_verify_token: str = Query(None, alias="hub.verify_token"),
+    hub_challenge: str = Query(None, alias="hub.challenge"),
+):
+    """WhatsApp Cloud API Webhook Verification."""
+    if hub_mode == "subscribe" and hub_verify_token == settings.WHATSAPP_VERIFY_TOKEN:
+        logger.info("Webhook verified successfully")
+        return Response(content=hub_challenge, media_type="text/plain")
+    
+    # Also support simple reachability test
     return {"status": "reachable", "time": datetime.now().isoformat()}
 
 
 @router.post("/webhook")
-async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
+async def combined_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         try:
             payload = await request.json()
@@ -53,7 +64,50 @@ async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
             logger.warning("Webhook: non-JSON body received")
             return {"status": "error", "reason": "invalid_json"}
 
-        # Extract event and message data
+        # Detect Meta/WhatsApp Cloud payload
+        if payload.get("object") == "whatsapp_business_account":
+            return await handle_whatsapp_cloud_webhook(payload, background_tasks)
+            
+        # Fallback to MessageBird
+        return await bird_webhook(payload, background_tasks)
+
+async def handle_whatsapp_cloud_webhook(payload: dict, background_tasks: BackgroundTasks):
+    """Handle inbound messages from WhatsApp Cloud API."""
+    try:
+        entries = payload.get("entry", [])
+        for entry in entries:
+            changes = entry.get("changes", [])
+            for change in changes:
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+                for message in messages:
+                    message_id = message.get("id")
+                    from_phone = message.get("from")
+                    sender_phone = cloud_to_internal(from_phone)
+                    
+                    # Extract text content
+                    message_text = ""
+                    msg_type = message.get("type")
+                    if msg_type == "text":
+                        message_text = message.get("text", {}).get("body", "")
+                    elif msg_type == "audio":
+                        # Audio handling would require fetching the media URL from Meta
+                        # Placeholder for now
+                        logger.warning("WhatsApp Cloud: Audio messages not yet supported")
+                        continue
+                        
+                    if not message_text:
+                        continue
+                        
+                    await process_inbound(sender_phone, message_text, message_id, "", background_tasks)
+                    
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error("WhatsApp Cloud webhook error: %s", e)
+        return {"status": "error"}
+
+async def bird_webhook(payload: dict, background_tasks: BackgroundTasks):
+
         event = payload.get("event", payload.get("type", ""))
         if event and not event.endswith(".inbound"):
             return {"status": "ignored", "reason": f"event:{event}"}
@@ -69,7 +123,7 @@ async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
         identifier = contact_obj.get("identifierValue", "")
         
         if identifier:
-            sender_phone = _to_internal_phone(identifier)
+            sender_phone = bird_to_internal(identifier)
         
         if not sender_phone:
             logger.error("Could not resolve phone for message %s", message_id)
@@ -90,7 +144,11 @@ async def bird_webhook(request: Request, background_tasks: BackgroundTasks):
         if not message_text:
             return {"status": "ignored", "reason": "empty_body"}
 
-        # Check for CLOSED state before anything else
+        await process_inbound(sender_phone, message_text, message_id, conversation_id, background_tasks)
+        return {"status": "ok"}
+
+async def process_inbound(sender_phone: str, message_text: str, message_id: str, conversation_id: str, background_tasks: BackgroundTasks):
+    try:
         session = await redis_client.get_session(sender_phone)
         if session and session.get("state") == ConversationState.CLOSED:
             # Check 24h cooldown

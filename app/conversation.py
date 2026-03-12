@@ -4,7 +4,7 @@ from app.config import settings
 from app.llm import llm_client
 from app.redis_client import redis_client
 from app.supabase_client import supabase_client
-from app.messagebird_client import send_message, send_chunked_messages, reply_to_conversation, reply_chunked_messages, send_typing_indicator
+from app.messaging import send_message, send_chunked_messages, send_typing_indicator
 from app.chunker import chunk_message, calculate_typing_delay
 from app.state_machine import check_transition
 from app.bant import extract_bant
@@ -27,7 +27,7 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         # Step 1: Wait 5 seconds, then send read receipt (blue ticks)
         await asyncio.sleep(5)
         if conversation_id and message_id:
-            from app.messagebird_client import mark_as_read
+            from app.messaging import mark_as_read
             await mark_as_read(conversation_id, message_id)
 
         # Step 2: Set processing flag and wait 3-5 seconds
