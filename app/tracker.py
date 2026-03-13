@@ -174,6 +174,18 @@ class AlbertTracker:
         except Exception as e:
             print(f"[Albert Tracker Error] update_state: {e}")
 
+    def set_typing_status(self, lead_id: str, is_typing: bool) -> None:
+        """Updates the is_typing field in conversation_state."""
+        if not lead_id or lead_id == "unknown":
+            return
+        try:
+            supabase.table("conversation_state").update({
+                "is_typing": is_typing,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("lead_id", lead_id).execute()
+        except Exception as e:
+            print(f"[Albert Tracker Error] set_typing_status: {e}")
+
     # ─── BOOKINGS ─────────────────────────────────────────────
 
     def confirm_booking(

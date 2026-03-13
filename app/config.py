@@ -36,11 +36,11 @@ class Settings(BaseSettings):
     HELICONE_API_KEY: str | None = None
 
     # Calendly
-    CALENDLY_LINK: str
+    CALENDLY_LINK: str = "https://calendly.com/after5/free-discovery-call"
 
     # App
     DEBUG: bool = False
-    INPUT_BUFFER_SECONDS: int = 3
+    INPUT_BUFFER_SECONDS: int = 5.0
     TYPING_DELAY_PER_CHAR: float = 0.03
     CHUNK_DELAY_SECONDS: float = 1.5
     MAX_FOLLOWUPS: int = 2

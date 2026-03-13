@@ -309,7 +309,7 @@ Lead Company: {{lead_company}}
 Current State: {{current_state}}
 BANT Scores: {{bant_scores}}
 Current Date/Time: {{current_datetime}}
-Calendly Link: {{calendly_link}}
+Calendly Link: https://calendly.com/after5/free-discovery-call
 
 Conversation History:
 {{conversation_history}}

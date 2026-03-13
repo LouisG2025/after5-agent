@@ -25,22 +25,32 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         print(f"\n[Conversation] 🚀 Starting process for {phone}: '{message[:50]}...'", flush=True)
         logger.info("\n[Conversation] 🚀 Starting process for %s: '%s...'", phone, message[:50])
 
-        # Step 1: Wait 5 seconds, then send read receipt (blue ticks)
-        await asyncio.sleep(5)
+        # Step 1: Initial pause (feels like picking up the phone)
+        await asyncio.sleep(2)
+        
+        # Step 2: Send read receipt (blue ticks)
         if message_id and (conversation_id or settings.MESSAGING_PROVIDER == "whatsapp_cloud"):
             from app.messaging import mark_as_read
+            print(f"[Conversation] ✅ Sending blue ticks for {phone}", flush=True)
             await mark_as_read(conversation_id, message_id)
 
-        # Step 2: Simulate READING time based on incoming message length
+        # Step 3: Simulate READING time based on incoming message length
         from app.chunker import calculate_reading_delay
         reading_delay = calculate_reading_delay(message)
         print(f"[Conversation] 📖 Reading simulation for {phone}: {reading_delay:.1f}s", flush=True)
         await asyncio.sleep(reading_delay)
 
-        # Step 3: Set processing flag
+        # Step 4: Start Typing Indicator (Simulates "Writing...")
+        # We start this BEFORE LLM call so the user knows we are responding
+        print(f"[Conversation] ✍️ Starting typing simulation for {phone}", flush=True)
+        await send_typing_indicator(phone, conversation_id, message_id)
+        if lead_id:
+            tracker.set_typing_status(lead_id, True)
+
+        # Step 5: Set processing flag
         await redis_client.set_processing(phone, True)
 
-        # Step 3: Get session and lead data
+        # Step 6: Get session and lead data
         session = await redis_client.get_session(phone)
         if not session:
             lead = tracker.get_lead_by_phone(phone)
@@ -57,16 +67,12 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         lead_data = session.get("lead_data", {})
         lead_id = lead_data.get("id")
 
-        # Step 4: Check if message is low-content spam
+        # Step 7: Check if message is low-content spam
         is_spam = await check_low_content(phone, message, session)
         if is_spam:
             return
 
-        # Step 5: Start Typing Indicator (Simulates "Writing...")
-        print(f"[Conversation] ✍️ Starting typing simulation for {phone}", flush=True)
-        await send_typing_indicator(phone, conversation_id, message_id)
-
-        # Step 6: LLM Call
+        # Step 8: LLM Call
         messages = await build_enhanced_context(session, lead_data, message)
         response_text = await llm_client.call_llm(
             messages,
@@ -82,7 +88,7 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
             await redis_client.set_processing(phone, False)
             return
 
-        # Step 7: Interrupt Check — did new messages arrive during LLM call?
+        # Step 9: Interrupt Check — did new messages arrive during LLM call?
         new_buffer = await redis_client.lrange(f"buffer:{phone}", 0, -1)
         if new_buffer:
             logger.info("[Conversation] New messages arrived during processing for %s, re-generating", phone)
@@ -92,32 +98,37 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
             # Re-process with combined input
             return await process_conversation(phone, combined, conversation_id, message_id)
 
-        # Step 8: Calendly Once-Only Check
+        # Step 10: Calendly Once-Only Check
         response_text = await check_and_send_calendly(phone, response_text)
 
-        # Step 9: Chunk and simulate TYPING speed based on response length
+        # Step 11: Send one coherent message (as requested in Section 1.3)
+        # We still use chunk_message for text cleaning (dashes, etc.)
         chunks = chunk_message(response_text)
         if chunks:
-            # Dynamic Typing Delay for the first chunk (how long it took to "write" it)
-            typing_delay = calculate_typing_delay(response_text)
+            full_response = "\n\n".join(chunks)
+            
+            # Dynamic Typing Delay based on response length
+            typing_delay = calculate_typing_delay(full_response)
             print(f"[Conversation] ⌨️ Typing simulation for {phone}: {typing_delay:.1f}s", flush=True)
             await asyncio.sleep(typing_delay)
             
-            print(f"[Conversation] 📤 Sending {len(chunks)} chunks to {phone}", flush=True)
-            await send_chunked_messages(phone, chunks, conversation_id)
+            print(f"[Conversation] 📤 Sending coherent message to {phone}", flush=True)
+            await send_message(phone, full_response)
+            if lead_id:
+                tracker.set_typing_status(lead_id, False)
 
-        # Step 10: Update session history and turn count
+        # Step 12: Update session history and turn count
         session["history"].append({"role": "user", "content": message})
         session["history"].append({"role": "assistant", "content": response_text})
         session["history"] = session["history"][-10:]
         session["turn_count"] += 1
         session["last_updated"] = datetime.now(timezone.utc).isoformat()
 
-        # Step 11: Tracking outbound
+        # Step 13: Tracking outbound
         for chunk in chunks:
             tracker.log_outbound(lead_id, chunk)
 
-        # Step 12: Check for state transition
+        # Step 14: Check for state transition
         new_state = check_transition(session["state"], session)
         if new_state and new_state != session["state"]:
             logger.info("[Conversation] Transitioning state: %s -> %s", session['state'], new_state)
@@ -135,7 +146,7 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
             }
             tracker.update_state(lead_id, state_map.get(new_state, "Opening"))
 
-        # Step 13: Cleanup and background tasks
+        # Step 15: Cleanup and background tasks
         await redis_client.save_session(phone, session)
         await redis_client.set_processing(phone, False)
         asyncio.create_task(extract_bant(phone, session["history"]))
