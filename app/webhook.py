@@ -231,3 +231,30 @@ async def process_inbound(sender_phone: str, message_text: str, message_id: str,
     except Exception as e:
         logger.critical("[Webhook] 🚨 CRITICAL WEBHOOK FAILURE: %s", e, exc_info=True)
         return {"status": "error", "reason": str(e)}
+
+
+@router.post("/admin/reset-session")
+async def admin_reset_session(request: Request):
+    """
+    Admin endpoint to reset a lead's session (clears WAITING/CLOSED state).
+    Usage: POST /admin/reset-session
+    Body: {"phone": "whatsapp:+918160178327"}
+    """
+    try:
+        body = await request.json()
+        phone = body.get("phone", "").strip()
+        if not phone:
+            return {"status": "error", "reason": "phone is required"}
+        
+        # Clear the session entirely — Albert will treat them as a new lead
+        await redis_client.redis.delete(f"session:{phone}")
+        await redis_client.redis.delete(f"buffer:{phone}")
+        await redis_client.redis.delete(f"batch_id:{phone}")
+        await redis_client.redis.delete(f"calendly_sent:{phone}")
+        await redis_client.redis.delete(f"low_content:{phone}")
+        
+        logger.info("[Admin] 🔄 Session reset for %s", phone)
+        return {"status": "ok", "message": f"Session reset for {phone}. Albert will treat this as a new conversation."}
+    except Exception as e:
+        logger.error("[Admin] Reset failed: %s", e)
+        return {"status": "error", "reason": str(e)}
