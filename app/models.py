@@ -10,6 +10,8 @@ class ConversationState(str, Enum):
     BOOKING = "booking"
     ESCALATION = "escalation"
     CONFIRMED = "confirmed"
+    WAITING = "waiting"      # Lead sending low-content spam
+    CLOSED = "closed"        # Conversation permanently ended
     WAITING = "waiting"
     CLOSED = "closed"
 

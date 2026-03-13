@@ -16,18 +16,18 @@ router = APIRouter()
 
 
 async def _buffer_timeout_handler(phone: str, batch_id: str, conversation_id: str = "", last_message_id: str = ""):
-    """Waits for input buffer to expire or hard-max, then processes combined message."""
+    """Waits for input buffer to expire (3s silence) or hard-max (8s), then processes."""
     logger.info("[Webhook] _buffer_timeout_handler started for %s (batch: %s)", phone, batch_id)
     
-    # Wait for the full input buffer window (3s)
+    # Wait for the rolling buffer window (3s)
     await asyncio.sleep(settings.INPUT_BUFFER_SECONDS)
 
-    # Check if a newer batch has started (another message arrived)
+    # Check if a newer batch has started
     current_batch = await redis_client.get_batch_id(phone)
     is_hard_max = await redis_client.should_process_buffer(phone)
     
     if current_batch != batch_id and not is_hard_max:
-        logger.info("[Webhook] Newer batch exists for %s, exiting handler %s", phone, batch_id)
+        logger.info("[Webhook] Newer batch exists for %s, skipping handler %s", phone, batch_id)
         return
 
     # Process all buffered messages
@@ -35,6 +35,7 @@ async def _buffer_timeout_handler(phone: str, batch_id: str, conversation_id: st
     if messages:
         combined_message = "\n".join(messages)
         logger.info("[Webhook] Processing combined batch %s for %s (%d messages)", batch_id, phone, len(messages))
+        # Call conversation engine
         await process_conversation(phone, combined_message, conversation_id, last_message_id)
     else:
         logger.info("[Webhook] No buffered messages for %s in batch %s", phone, batch_id)
@@ -162,31 +163,45 @@ async def bird_webhook(payload: dict, background_tasks: BackgroundTasks):
 
 
 async def process_inbound(sender_phone: str, message_text: str, message_id: str, conversation_id: str, background_tasks: BackgroundTasks):
+    """Entry point for all inbound messages. Handles state guards and buffering."""
     try:
         session = await redis_client.get_session(sender_phone)
-        if session and session.get("state") == ConversationState.CLOSED:
-            # Check 24h cooldown
+        if not session:
+            # Create minimal session to check state
+            session = {"state": ConversationState.OPENING, "history": [], "turn_count": 0}
+            
+        state = session.get("state")
+
+        # 1. CLOSED state — 24h cooldown guard
+        if state == ConversationState.CLOSED:
             last_updated_str = session.get("last_updated")
             if last_updated_str:
                 try:
-                    # session["last_updated"] is likely ISO format if stored in JSON or datetime
-                    if isinstance(last_updated_str, str):
-                        last_updated = datetime.fromisoformat(last_updated_str.replace('Z', '+00:00'))
-                    else:
-                        last_updated = last_updated_str
-                        
+                    last_updated = datetime.fromisoformat(last_updated_str.replace('Z', '+00:00'))
                     hours_since = (datetime.now(timezone.utc) - last_updated).total_seconds() / 3600
                     if hours_since < 24:
                         logger.info("[Webhook] Lead %s is CLOSED, ignoring. %.1fh remaining", sender_phone, 24 - hours_since)
                         return {"status": "ignored", "reason": "closed"}
                     else:
-                        logger.info("[Webhook] 24h cooldown passed for %s, re-opening", sender_phone)
+                        logger.info("[Webhook] Cooldown passed for %s, re-opening", sender_phone)
                         session["state"] = ConversationState.OPENING
                         await redis_client.save_session(sender_phone, session)
                 except Exception as e:
                     logger.error("Error checking CLOSED cooldown: %s", e)
 
-        # Log inbound to tracker
+        # 2. WAITING state — Low content guard
+        if state == ConversationState.WAITING:
+            words = message_text.strip().split()
+            if len(words) < 5:
+                logger.info("[Webhook] Lead %s in WAITING state, low-content ignored", sender_phone)
+                return {"status": "ignored", "reason": "waiting_low_content"}
+            else:
+                logger.info("[Webhook] Lead %s sent substantial message, resuming from WAITING", sender_phone)
+                session["state"] = ConversationState.DISCOVERY
+                session["low_content_count"] = 0
+                await redis_client.save_session(sender_phone, session)
+
+        # 3. Log inbound to tracker
         try:
             from app.tracker import AlbertTracker
             tracker = AlbertTracker()
@@ -198,7 +213,13 @@ async def process_inbound(sender_phone: str, message_text: str, message_id: str,
         except Exception as e:
             logger.error("[Webhook] Tracker failed: %s", e)
 
-        # Buffer message and start timer
+        # 4. Check for low-content spam (WAITING transition)
+        from app.conversation import check_low_content
+        is_spam_threshold_reached = await check_low_content(sender_phone, message_text, session)
+        if is_spam_threshold_reached:
+            return {"status": "ok", "action": "entered_waiting"}
+
+        # 5. Buffer message and start rolling timer
         batch_id = f"batch_{datetime.now().timestamp()}_{message_id}"
         await redis_client.buffer_message(sender_phone, message_text)
         await redis_client.set_batch_id(sender_phone, batch_id)

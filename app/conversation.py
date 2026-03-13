@@ -25,20 +25,19 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         print(f"\n[Conversation] 🚀 Starting process for {phone}: '{message[:50]}...'", flush=True)
         logger.info("\n[Conversation] 🚀 Starting process for %s: '%s...'", phone, message[:50])
 
-        # Step 1: Initial pause (feels like picking up the phone)
+        # Step 1: Initial wait (3s rolling + 2s here = 5s total)
         await asyncio.sleep(2)
         
-        # Step 2: Send read receipt (blue ticks)
-        if message_id and (conversation_id or settings.MESSAGING_PROVIDER == "whatsapp_cloud"):
+        # Step 2: Send read receipt (blue ticks) at 5s mark
+        if message_id:
             from app.messaging import mark_as_read
             print(f"[Conversation] ✅ Sending blue ticks for {phone}", flush=True)
             await mark_as_read(conversation_id, message_id)
 
-        # Step 3: Simulate READING time based on incoming message length
-        from app.chunker import calculate_reading_delay
-        reading_delay = calculate_reading_delay(message)
-        print(f"[Conversation] 📖 Reading simulation for {phone}: {reading_delay:.1f}s", flush=True)
-        await asyncio.sleep(reading_delay)
+        # Step 3: Random pause before typing (3-5s)
+        extra_pause = random.uniform(3, 5)
+        print(f"[Conversation] ⏳ Waiting {extra_pause:.1f}s before typing start", flush=True)
+        await asyncio.sleep(extra_pause)
 
         # Step 4: Get session and lead data
         session = await redis_client.get_session(phone)
@@ -105,14 +104,18 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
             # Re-process with combined input
             return await process_conversation(phone, combined, conversation_id, message_id)
 
-        # Step 10: Calendly Once-Only Check
-        response_text = await check_and_send_calendly(phone, response_text)
+        # Step 10: Calendly Resend Logic (>10 message distance)
+        response_text = await check_and_send_calendly(phone, response_text, session["history"])
 
-        # Step 11: Send chunks sequentially (Multi-bubble realism)
-        chunks = chunk_message(response_text)
-        if chunks:
-            print(f"[Conversation] 📤 Sending {len(chunks)} chunks to {phone}", flush=True)
-            await send_chunked_messages(phone, chunks, conversation_id)
+        # Step 11: Send coherent response (Single bubble logic)
+        if response_text:
+            print(f"[Conversation] 📤 Sending coherent response to {phone}", flush=True)
+            # Dynamic typing delay for the ONE bubble
+            from app.chunker import calculate_typing_delay
+            final_typing_delay = calculate_typing_delay(response_text)
+            await asyncio.sleep(final_typing_delay)
+            
+            await send_message(phone, response_text)
             if lead_id:
                 tracker.set_typing_status(lead_id, False)
 
@@ -124,11 +127,23 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         session["last_updated"] = datetime.now(timezone.utc).isoformat()
 
         # Step 13: Tracking outbound
-        for chunk in chunks:
-            tracker.log_outbound(lead_id, chunk)
+        tracker.log_outbound(lead_id, response_text)
 
         # Step 14: Check for state transition
         new_state = check_transition(session["state"], session)
+        
+        # Detect Exit Phrases for CLOSED state (Issue 7 & 8)
+        exit_phrases = [
+            "no worries, you know where to find us",
+            "come back when you want to chat properly",
+            "all the best",
+            "leave it there"
+        ]
+        response_lower = response_text.lower()
+        if any(phrase in response_lower for phrase in exit_phrases):
+            logger.info("[Conversation] Exit phrase detected, closing conversation for %s", phone)
+            new_state = ConversationState.CLOSED
+
         if new_state and new_state != session["state"]:
             logger.info("[Conversation] Transitioning state: %s -> %s", session['state'], new_state)
             session["state"] = new_state
@@ -156,39 +171,64 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
 
 
 async def check_low_content(phone: str, message: str, session: dict) -> bool:
-    """Checks for low-content spam and handles WAITING state."""
-    words = message.strip().split()
-    low_content_patterns = ["hey", "heyy", "heyyy", "hi", "hello", "yo", "sup", "?", "ok", "k", "yeah"]
+    """Checks for low-content spam and handles tiers of exit/waiting."""
+    content = message.strip().lower().rstrip("!?.")
+    words = content.split()
+    low_content_patterns = ["hey", "heyy", "heyyy", "hi", "hello", "yo", "sup", "?", "ok", "k", "yeah", "nice"]
     
-    is_low_content = (
-        len(words) < 5 and 
-        message.strip().lower().rstrip("!?.") in low_content_patterns
-    ) or len(words) < 2
+    is_low_content = (len(words) < 2 and content in low_content_patterns) or len(words) == 0
     
     if is_low_content:
         count = session.get("low_content_count", 0) + 1
         session["low_content_count"] = count
         
+        # Tier 1 (2 messages): Casual re-engage
+        if count == 2:
+            from app.messaging import send_message
+            await send_message(phone, "Haha what's up, you good?")
+            return True
+        
+        # Tier 2 (3+ messages): State transition to WAITING
         if count >= settings.LOW_CONTENT_THRESHOLD:
             session["state"] = ConversationState.WAITING
             await redis_client.save_session(phone, session)
+            from app.messaging import send_message
             await send_message(phone, "Hey, timing might be off. I'm here whenever you want to have a proper chat.")
             return True
+            
     else:
+        # Reset count on substantial message
         session["low_content_count"] = 0
     
     return False
 
 
-async def check_and_send_calendly(phone: str, text: str) -> str:
-    """Ensures Calendly link is only sent once."""
+async def check_and_send_calendly(phone: str, text: str, history: list) -> str:
+    """
+    Ensures Calendly link is sent if:
+    1. It's never been sent before.
+    2. It was last sent more than 10 messages ago.
+    """
     calendly_link = settings.CALENDLY_LINK
-    if calendly_link in text:
-        if await redis_client.has_sent_calendly(phone):
-            text = text.replace(calendly_link, "[link already sent above]")
-            logger.info("[Conversation] Calendly link already sent to %s, removing", phone)
-        else:
-            await redis_client.mark_calendly_sent(phone)
+    if calendly_link not in text:
+        return text
+
+    # Check history for the last occurrence of the link
+    last_sent_index = -1
+    for i, msg in enumerate(reversed(history)):
+        if msg["role"] == "assistant" and calendly_link in msg["content"]:
+            last_sent_index = i
+            break
+    
+    # If found within the last 10 messages, replace it
+    if last_sent_index != -1 and last_sent_index < 11:
+        text = text.replace(calendly_link, "[link provided above]")
+        logger.info("[Conversation] Calendly link sent recently (%d msgs ago) to %s, suppressing", last_sent_index, phone)
+    else:
+        # Mark as sent (though we use history for exact distance, this flag still useful)
+        await redis_client.mark_calendly_sent(phone)
+        logger.info("[Conversation] Sending/Resending Calendly link to %s (distance > 10 or new)", phone)
+
     return text
 
 
@@ -216,9 +256,16 @@ async def build_enhanced_context(session: dict, lead_data: dict, message: str, k
     elif overall_score >= 7:
         instruction += "INSTRUCTION: Lead is qualified. Suggest a call with Louis when the moment feels natural.\n"
     
-    # Inject form context if present
-    if lead_data.get("industry") or lead_data.get("message"):
-        instruction += f"\nFORM DATA SUBMITTED: Industry: {lead_data.get('industry')}, Message: {lead_data.get('message')}. Use this to skip basic questions.\n"
+    # Inject Form context (Issue 9)
+    form_keys = ["name", "email", "company", "industry", "message", "lead_source", "website", "company_size", "role"]
+    form_details = []
+    for k in form_keys:
+        val = lead_data.get(k)
+        if val:
+            form_details.append(f"{k.replace('_', ' ').capitalize()}: {val}")
+    
+    if form_details:
+        instruction += f"\nFORM DATA SUBMITTED BY LEAD:\n" + "\n".join(form_details) + "\nUse this information to skip discovery questions we already have answers for.\n"
 
     # Append instruction to the system message
     if messages and messages[0]["role"] == "system":

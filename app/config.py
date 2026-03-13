@@ -40,12 +40,15 @@ class Settings(BaseSettings):
 
     # App
     DEBUG: bool = False
-    INPUT_BUFFER_SECONDS: int = 5.0
+    # Input buffer settings (Issues 1 & 2)
+    INPUT_BUFFER_SECONDS: float = 3.0       # Rolling timer
+    INPUT_BUFFER_MAX_SECONDS: float = 8.0   # Hard max from first message
+    
+    # Low content spam threshold (Issue 8)
+    LOW_CONTENT_THRESHOLD: int = 3          # Messages before WAITING state
     TYPING_DELAY_PER_CHAR: float = 0.03
     CHUNK_DELAY_SECONDS: float = 1.5
     MAX_FOLLOWUPS: int = 2
-    INPUT_BUFFER_MAX_SECONDS: float = 8.0
-    LOW_CONTENT_THRESHOLD: int = 3
 
     # OpenAI / Whisper
     OPENAI_API_KEY: str = ""
