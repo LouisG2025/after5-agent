@@ -146,14 +146,33 @@ async def send_chunked_messages(to: str, chunks: list[str], conversation_id: str
     """
     Send multiple messages with realistic typing delays.
     Shows typing indicator during the sleep period for better UX.
+    Aborts the remaining chunks if a new message arrives while typing.
     """
+    from app.redis_client import redis_client
+
     for i, chunk in enumerate(chunks):
+        # Apply typing delay for all messages except the first one
         if i > 0:
             delay = calculate_typing_delay(chunk)
             if message_id:
                 # Fire and forget typing indicator
                 asyncio.create_task(send_typing_indicator(to, message_id))
-            await asyncio.sleep(delay)
+            
+            # Sleep in intervals to allow checking for interrupts mid-typing
+            intervals = int(delay / 0.2)
+            remainder = delay % 0.2
+            
+            for _ in range(intervals):
+                await asyncio.sleep(0.2)
+                if await redis_client.has_new_messages_during_generation(to):
+                    logger.info("[Interrupt] New message detected while typing to %s. Aborting remaining %d chunk(s).", to, len(chunks) - i)
+                    return
+            
+            if remainder > 0:
+                await asyncio.sleep(remainder)
+                if await redis_client.has_new_messages_during_generation(to):
+                    logger.info("[Interrupt] New message detected while typing to %s. Aborting remaining %d chunk(s).", to, len(chunks) - i)
+                    return
         
         await send_message(to, chunk)
 
