@@ -1,6 +1,7 @@
 import logging
 import sys
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.webhook import router as webhook_router
 from app.outbound import router as outbound_router
 from app.calendly import router as calendly_router
@@ -16,6 +17,15 @@ logger = logging.getLogger(__name__)
 logger.info("Application starting...")
 
 app = FastAPI(title="After5 WhatsApp AI Agent", version="1.0.0")
+
+# Allow CORS for the frontend dashboard
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (standard for development/admin dashboard)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(webhook_router)
 app.include_router(outbound_router)
