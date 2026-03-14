@@ -28,10 +28,15 @@ def chunk_message(text: str) -> list[str]:
         chunks = [c.strip() for c in text.split("|||") if c.strip()]
     elif "[CHUNK]" in text:
         chunks = [c.strip() for c in text.split("[CHUNK]") if c.strip()]
-    elif len(text) <= 200:
-        return [text]
     else:
-        chunks = _split_at_sentences(text)
+        # Check if we can split sentences naturally regardless of length
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+        if len(sentences) > 1:
+            chunks = _split_at_sentences(sentences)
+        elif len(text) <= 200:
+            return [text]
+        else:
+            chunks = _split_at_sentences(sentences)
     
     if not chunks:
         return [text]
@@ -43,11 +48,13 @@ def chunk_message(text: str) -> list[str]:
     chunks = [c for c in chunks if c.strip()]
     return chunks if chunks else [text]
 
-def _split_at_sentences(text: str) -> list[str]:
-    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+def _split_at_sentences(sentences: list[str]) -> list[str]:
+    if not sentences:
+        return []
     
     if len(sentences) <= 2:
-        return [text.strip()]
+        return sentences
+    
     if len(sentences) <= 4:
         mid = len(sentences) // 2
         return [" ".join(sentences[:mid]), " ".join(sentences[mid:])]
