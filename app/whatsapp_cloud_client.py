@@ -20,10 +20,13 @@ def _get_headers() -> dict:
 def _to_cloud_phone(phone: str) -> str:
     """
     Convert internal format to Cloud API format.
-    Our system:  whatsapp:+447700900000
+    Our system:  whatsapp:+447700900000 or "+44 7700 900000"
     Cloud API:    447700900000
     """
-    return phone.replace("whatsapp:", "").replace("+", "")
+    # Remove "whatsapp:" prefix if present
+    cleaned = str(phone).replace("whatsapp:", "")
+    # Keep only digits
+    return "".join(filter(str.isdigit, cleaned))
 
 def _to_internal_phone(phone: str) -> str:
     """
