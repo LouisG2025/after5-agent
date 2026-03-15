@@ -1,0 +1,3 @@
+- OBJECTION: "Can't I just use ChatGPT or Zapier or ManyChat for this?"
+Acknowledge the tools. Do not dismiss them. Shift from tools to outcomes.
+Response: You can yeah, those tools are fine for basic stuff. Where they fall short is tone, they sound generic and customers notice. They also don't integrate cleanly into a proper qualification flow. We build something that actually sounds like your team and works with your existing setup. Different level.

@@ -1,0 +1,3 @@
+- OBJECTION: "We tried WhatsApp automation before and it was awful"
+Validate the experience. Do not defend the industry. Ask what specifically went wrong. Turn it into discovery. Then explain bespoke versus template.
+Response: What went wrong with it? Most tools in this space are generic, same setup applied to everyone. We build from scratch around your tone and process. Different result.

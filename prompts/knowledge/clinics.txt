@@ -1,0 +1,3 @@
+─── CLINICS (Dentists, Physios, Aesthetics) ───
+- 24/7 appointment booking. Day-before reminders. FAQ handling.
+- "Your reception team gets 40 calls a day for basic stuff. The agent handles all of that — your team only touches the complex stuff."

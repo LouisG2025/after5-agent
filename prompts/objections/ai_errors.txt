@@ -1,0 +1,2 @@
+- OBJECTION: "What if the AI says something wrong to a customer?"
+Response: Real concern and one we take seriously. The agent is trained on your business specifically so it doesn't go off-script. Only operates within what it knows. We test it properly before launch and there are guardrails built in. If it hits something it can't handle, it escalates. Louis can walk through exactly how that works on a call.

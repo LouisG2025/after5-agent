@@ -1,0 +1,2 @@
+- OBJECTION: "I don't think AI is ready for this kind of thing yet"
+Response: A lot of it isn't, fair point. What we build is more constrained than a general AI. Trained on your business specifically, your tone, your process. It's not trying to do everything, just one thing well. Whether it's ready for your setup is what the call figures out.

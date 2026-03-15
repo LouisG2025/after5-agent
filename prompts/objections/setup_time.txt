@@ -1,0 +1,2 @@
+- OBJECTION: "How long does it take to set up?"
+Response: Typically 2 to 3 weeks from start to launch. Depends on channels, integrations, and how complex the build needs to be. Louis goes through it properly on the call.
