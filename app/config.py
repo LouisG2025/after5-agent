@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     # App
     DEBUG: bool = False
     # Input buffer settings (Issues 1 & 2)
-    INPUT_BUFFER_SECONDS: float = 3.0       # Rolling timer
-    INPUT_BUFFER_MAX_SECONDS: float = 8.0   # Hard max from first message
+    INPUT_BUFFER_SECONDS: float = 5.0       # Rolling timer
+    INPUT_BUFFER_MAX_SECONDS: float = 12.0   # Hard max from first message
     
     # Low content spam threshold (Issue 8)
     LOW_CONTENT_THRESHOLD: int = 3          # Messages before WAITING state
