@@ -55,14 +55,25 @@ class AlbertTracker:
         return {}
 
     async def get_lead_by_phone(self, phone: str) -> Optional[dict]:
-        """Call on every incoming WhatsApp message to find the lead."""
-        try:
-            client = await supabase_client.get_client()
-            result = await client.table("leads").select("*").eq("phone", phone).execute()
-            return result.data[0] if result.data else None
-        except Exception as e:
-            print(f"[Albert Tracker Error] get_lead_by_phone: {e}")
-            return None
+        """Call on every incoming WhatsApp message to find the lead with retry logic."""
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                start = asyncio.get_event_loop().time()
+                client = await supabase_client.get_client()
+                result = await client.table("leads").select("*").eq("phone", phone).execute()
+                end = asyncio.get_event_loop().time()
+                
+                if attempt > 0:
+                    print(f"[Albert Tracker] ♻️ Retry {attempt} success in {end-start:.2f}s", flush=True)
+                
+                return result.data[0] if result.data else None
+            except Exception as e:
+                print(f"[Albert Tracker Error] get_lead_by_phone (attempt {attempt+1}): {e}", flush=True)
+                if attempt < max_retries:
+                    await asyncio.sleep(1) # Small pause before retry
+                else:
+                    return None
 
     async def get_all_leads(self) -> list:
         """Fetch all leads to display in the admin panel."""

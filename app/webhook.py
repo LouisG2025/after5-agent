@@ -305,7 +305,8 @@ async def admin_get_lead_status(phone: str):
         if not lead:
             return {"status": "error", "message": "Lead not found in Supabase database"}
             
-        res = await supabase_client.client.table("conversation_state").select("*").eq("lead_id", lead["id"]).execute()
+        client = await supabase_client.get_client()
+        res = await client.table("conversation_state").select("*").eq("lead_id", lead["id"]).execute()
         conv_state = res.data[0] if res.data else {}
         
         return {

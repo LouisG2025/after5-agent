@@ -6,17 +6,23 @@ from typing import Optional, Dict, Any
 class SupabaseClient:
     def __init__(self):
         self._client = None
+        self._lock = asyncio.Lock()
 
     async def get_client(self):
-        if self._client is None:
-            from supabase import create_async_client
-            from supabase.client import ClientOptions
-            self._client = await create_async_client(
-                settings.SUPABASE_URL, 
-                settings.SUPABASE_SERVICE_KEY,
-                options=ClientOptions(postgrest_client_timeout=20)
-            )
-        return self._client
+        async with self._lock:
+            if self._client is None:
+                print("[Supabase] 🔄 Initializing Async Client...", flush=True)
+                start = asyncio.get_event_loop().time()
+                from supabase import create_async_client
+                from supabase.client import ClientOptions
+                self._client = await create_async_client(
+                    settings.SUPABASE_URL, 
+                    settings.SUPABASE_SERVICE_KEY,
+                    options=ClientOptions(postgrest_client_timeout=20)
+                )
+                end = asyncio.get_event_loop().time()
+                print(f"[Supabase] ✅ Async Client ready in {end-start:.2f}s", flush=True)
+            return self._client
 
     async def create_lead(self, name: str, phone: str, company: str) -> Dict[str, Any]:
         """Inserts into leads table."""
