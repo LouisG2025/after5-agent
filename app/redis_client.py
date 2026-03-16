@@ -57,7 +57,8 @@ class RedisClient:
             exists = await self.redis.get(f"dedup:{message_sid}")
             if exists:
                 return True
-            await self.redis.set(f"dedup:{message_sid}", "1", ex=300)
+            # Deduplicate for 24 hours to handle Meta's late retries
+            await self.redis.set(f"dedup:{message_sid}", "1", ex=86400)
             return False
         except Exception as e:
             print(f"[Redis] ❌ check_dedup failed: {e}", flush=True)

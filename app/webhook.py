@@ -60,8 +60,18 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         sender_phone_raw = message.get("from", "")         # "447700900000"
         message_id = message.get("id", "")                  # "wamid.xxx"
         message_type = message.get("type", "")               # "text", "audio", etc.
+        message_ts = int(message.get("timestamp", 0))       # Epoch seconds
         sender_name = contact.get("profile", {}).get("name", "")
         
+        # ═══ STALENESS CHECK (5-minute rule) ═══
+        # If the message is older than 5 mins, ignore it to avoid delayed out-of-context replies.
+        if message_ts > 0:
+            import time
+            now = int(time.time())
+            if (now - message_ts) > 300:
+                logger.warning(f"[Webhook] Stale message detected ({now - message_ts}s old) from {sender_phone_raw}. Ignoring.")
+                return {"status": "ignored", "reason": "stale"}
+
         # Convert to internal format
         cleaned = sender_phone_raw.strip().lstrip("+")
         sender_phone = f"whatsapp:+{cleaned}"
