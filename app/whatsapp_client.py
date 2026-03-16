@@ -44,7 +44,7 @@ async def send_message(to: str, body: str) -> dict | None:
         return None
 
 
-async def send_chunked_messages(to: str, chunks: list[str]) -> None:
+async def send_chunked_messages(to: str, chunks: list[str], conversation_id: str = "", message_id: str = "") -> None:
     """Send multiple messages with realistic typing delays and interrupt check."""
     from app.redis_client import redis_client
     for i, chunk in enumerate(chunks):
@@ -90,7 +90,7 @@ async def send_template_message(to: str, template_name: str, language_code: str 
         return None
 
 
-async def send_typing_indicator(to: str) -> bool:
+async def send_typing_indicator(to: str, message_id: str = "") -> bool:
     """Send a typing indicator (simulated via read status if needed, but Cloud API doesn't have a direct 'typing' status like others, often handled via 'read' status for the last message or just ignored). Actually, some versions have it."""
     # Note: WhatsApp Cloud API doesn't officially support a 'typing' status in the same way as some other providers
     # but we'll leave the placeholder if the user expects it. 
