@@ -27,7 +27,7 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         print(f"\n[Conversation] 🚀 Starting process for {phone}: '{message[:50]}...'", flush=True)
         logger.info("\n[Conversation] 🚀 Starting process for %s: '%s...'", phone, message[:50])
 
-        # Step 2: Handle /reset command
+        # Step 3: Handle /reset command
         if message.strip().lower() == "/reset":
             logger.info("[Conversation] Reset command detected for %s. Clearing session.", phone)
             session = {
@@ -39,15 +39,17 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
             }
             await redis_client.save_session(phone, session)
             await send_message(phone, "haha no worries, fresh start it is. How can I help today?")
-            await redis_client.set_processing(phone, False)
+            await redis_client.clear_generating(phone)
             return
 
-        # Step 3: Send read receipt (blue ticks) 
+        # Step 4: Timing Sequence (Master Prompt Fix 5)
+        # 1. 5s pause
+        print(f"[Conversation] ⏳ Waiting 5s before read receipt for {phone}", flush=True)
+        await asyncio.sleep(5)
+        
+        # 2. Read Receipt (blue ticks)
         if message_id:
             print(f"[Conversation] ✅ Sending blue ticks for {phone}", flush=True)
-            await mark_as_read(conversation_id, message_id)
-
-        # Step 4: Random pause before typing (1-2s)
         # 5s buffer (rolling) + 1-2s here = 6-7s total before typing start
         extra_pause = random.uniform(1, 2)
         print(f"[Conversation] ⏳ Waiting {extra_pause:.1f}s before typing start", flush=True)
@@ -106,7 +108,7 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         if not response_text or "[NO_REPLY]" in response_text.upper():
             if response_text and "[NO_REPLY]" in response_text.upper():
                 logger.info("[Conversation] LLM generated [NO_REPLY] for %s. Ignoring and doing nothing.", phone)
-            await redis_client.set_processing(phone, False)
+            await redis_client.clear_generating(phone)
             return
 
         # Step 9.5: Clean Response (Strip any system tags like [SYSTEM ACTION: ...])
@@ -121,12 +123,12 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         if new_messages_str:
             logger.info("[Conversation] New messages arrived during processing for %s, re-generating", phone)
             combined = message + "\n" + new_messages_str
-            await redis_client.set_processing(phone, False)
+            await redis_client.clear_generating(phone)
             # Re-process with combined input
             return await process_conversation(phone, combined, conversation_id, message_id)
 
-        # Step 10: Calendly Resend Logic (>10 message distance)
-        response_text = await check_and_send_calendly(phone, response_text, session["history"])
+        # Step 10: Calendly Resend Logic (Fix 3)
+        response_text = await check_and_send_calendly(phone, response_text, session)
 
         # Step 11: Send natural multi-bubble response
         if response_text:
@@ -134,7 +136,7 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
             chunks = chunk_message(response_text)
             
             # Use the existing utility that handles delays and typing indicators
-            await send_chunked_messages(phone, chunks, conversation_id, message_id)
+            await send_chunked_messages(phone, chunks)
             
             if lead_id:
                 await tracker.set_typing_status(lead_id, False)
@@ -182,12 +184,12 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
 
         # Step 15: Cleanup and background tasks
         await redis_client.save_session(phone, session)
-        await redis_client.set_processing(phone, False)
+        await redis_client.clear_generating(phone)
         asyncio.create_task(extract_bant(phone, session["history"]))
 
     except Exception as e:
         logger.critical("[Conversation] 🚨 CRITICAL ERROR processing %s: %s", phone, e, exc_info=True)
-        await redis_client.set_processing(phone, False)
+        await redis_client.clear_generating(phone)
 
 
 async def check_low_content(phone: str, message: str, session: dict) -> bool:
@@ -213,13 +215,13 @@ async def check_low_content(phone: str, message: str, session: dict) -> bool:
         count = session.get("low_content_count", 0) + 1
         session["low_content_count"] = count
         
-        # Tier 1 (3rd message): Casual re-engage
-        if count == 3:
+        # Tier 1 (2 low-content messages): Casual re-engage (Master Prompt Fix 8)
+        if count == 2:
             await send_message(phone, "Haha what's up, you good?")
             return True
         
-        # Tier 2 (6+ messages): State transition to WAITING
-        if count >= 6:
+        # Tier 2 (3+ messages): State transition to WAITING (Master Prompt Fix 4)
+        if count >= 3:
             session["state"] = ConversationState.WAITING
             await redis_client.save_session(phone, session)
             await send_message(phone, "Hey, timing might be off. I'm here whenever you want to have a proper chat.")
@@ -232,16 +234,22 @@ async def check_low_content(phone: str, message: str, session: dict) -> bool:
     return False
 
 
-async def check_and_send_calendly(phone: str, text: str, history: list) -> str:
+async def check_and_send_calendly(phone: str, text: str, session: dict) -> str:
     """
-    Ensures Calendly link is tracked if sent.
-    We removed the strict backend replacement so the AI doesn't sound robotic with '[link provided above]'.
+    Ensures Calendly link is sent ONLY ONCE per conversation.
+    If already sent, removes from text and replaces with hint.
     """
     calendly_link = settings.CALENDLY_LINK
     
     if calendly_link in text:
-        await redis_client.mark_calendly_sent(phone)
-        logger.info("[Conversation] Tracking Calendly link sent to %s", phone)
+        if await redis_client.has_sent_calendly(phone):
+            logger.info("[Conversation] Calendly already sent to %s. Removing from response.", phone)
+            # Remove the link and optionally the sentence containing it if it's chunked.
+            # But simpler: just replace the link with the reminder phrase.
+            text = text.replace(calendly_link, "[link already sent above]")
+        else:
+            await redis_client.mark_calendly_sent(phone)
+            logger.info("[Conversation] Tracking Calendly link sent to %s", phone)
 
     return text
 
@@ -255,6 +263,24 @@ async def build_enhanced_context(session: dict, lead_data: dict, message: str, k
     # We will let the placeholders in system_prompt.txt handle it,
     # but we can add an extra "INSTRUCTION" block here for dynamic guidance.
     
+    # 2. Fetch Relevant RAG Context
+    rag_map = {
+        ConversationState.OPENING: "rag:sales:psychology",
+        ConversationState.DISCOVERY: "rag:sales:spin",
+        ConversationState.QUALIFICATION: "rag:sales:signals",
+        ConversationState.BOOKING: "rag:sales:closing",
+    }
+    # Convert ConversationState enum to string for map lookup, default to OPENING if not found
+    current_state_str = session.get("state", ConversationState.OPENING)
+    rag_key = rag_map.get(current_state_str, "rag:sales:psychology")
+    
+    # Check for likely objections (simple heuristic before LLM)
+    msg_low = message.lower()
+    if any(o in msg_low for o in ["expensive", "cost", "price", "budget", "time", "busy", "think", "team", "va"]):
+        rag_key = "rag:sales:objections"
+
+    rag_training = await redis_client.get(rag_key) or ""
+
     # Qualification signaling
     bant_scores = session.get("bant_scores", {})
     overall_score = bant_scores.get("overall_score", 0)
@@ -287,8 +313,10 @@ async def build_enhanced_context(session: dict, lead_data: dict, message: str, k
     if form_details:
         instruction += f"\nFORM DATA SUBMITTED BY LEAD:\n" + "\n".join(form_details) + "\nUse this information to skip discovery questions we already have answers for.\n"
 
-    # Append instruction to the system message
+    # Append everything to the system message
     if messages and messages[0]["role"] == "system":
+        if rag_training:
+            messages[0]["content"] += f"\n\n--- SALES TRAINING MODULE ---\n{rag_training}\n"
         messages[0]["content"] += instruction
         
     return messages

@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     WHATSAPP_BUSINESS_ACCOUNT_ID: str = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
     WHATSAPP_ACCESS_TOKEN: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
     WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "after5_verify_token")
-    WHATSAPP_API_VERSION: str = os.getenv("WHATSAPP_API_VERSION", "v22.0")
-    MESSAGING_PROVIDER: str = os.getenv("MESSAGING_PROVIDER", "messagebird") # "messagebird" or "whatsapp_cloud"
+    WHATSAPP_API_VERSION: str = os.getenv("WHATSAPP_API_VERSION", "v21.0")
+    MESSAGING_PROVIDER: str = os.getenv("MESSAGING_PROVIDER", "whatsapp_cloud") # "messagebird" or "whatsapp_cloud"
 
     # OpenRouter
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
@@ -40,13 +40,14 @@ class Settings(BaseSettings):
 
     # App
     DEBUG: bool = False
-    # Input buffer settings (Issues 1 & 2)
-    INPUT_BUFFER_SECONDS: float = 5.0       # Rolling timer
-    INPUT_BUFFER_MAX_SECONDS: float = 12.0   # Hard max from first message
+    # Input buffer settings (Master Prompt Fix 1)
+    INPUT_BUFFER_SECONDS: float = 3.0
+    INPUT_BUFFER_MAX_SECONDS: float = 8.0
+    MAX_INTERRUPT_RETRIES: int = 2
     
-    # Low content spam threshold (Issue 8)
-    LOW_CONTENT_THRESHOLD: int = 3          # Messages before WAITING state
-    TYPING_DELAY_PER_CHAR: float = 0.06
+    # Low content spam threshold (Master Prompt Fix 4)
+    LOW_CONTENT_THRESHOLD: int = 3
+    TYPING_DELAY_PER_CHAR: float = 0.03
     CHUNK_DELAY_SECONDS: float = 1.5
     MAX_FOLLOWUPS: int = 2
     MAX_CHUNKS: int = 3

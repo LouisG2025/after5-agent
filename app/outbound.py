@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Body, BackgroundTasks
 from app.models import LeadCreate
 from app.supabase_client import supabase_client
-from app.whatsapp_cloud_client import (
+from app.whatsapp_client import (
     send_message, 
     send_typing_indicator, 
     send_chunked_messages,

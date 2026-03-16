@@ -128,7 +128,7 @@ class LLMClient:
                 system_prompt = f.read()
         else:
             # DYNAMIC MODE: Start with Core and inject what's needed
-            core_path = os.path.join(os.getcwd(), "prompts", "core_prompt.txt")
+            core_path = os.path.join(os.getcwd(), "prompts", "system_prompt.txt")
             with open(core_path, "r", encoding="utf-8") as f:
                 core_prompt = f.read()
             

@@ -70,7 +70,7 @@ class RedisClient:
         try:
             key = f"buffer:{phone}"
             first_key = f"buffer_first:{phone}"
-            batch_key = f"batch:{phone}"
+            batch_key = f"buffer_batch:{phone}"
             
             await self.redis.rpush(key, message)
             await self.redis.expire(key, 60)
@@ -92,7 +92,7 @@ class RedisClient:
         try:
             key = f"buffer:{phone}"
             first_key = f"buffer_first:{phone}"
-            batch_key = f"batch:{phone}"
+            batch_key = f"buffer_batch:{phone}"
             
             messages = await self.redis.lrange(key, 0, -1)
             await self.redis.delete(key, first_key, batch_key)
@@ -109,7 +109,7 @@ class RedisClient:
     async def is_batch_current(self, phone: str, batch_id: str) -> bool:
         """Check if this batch_id is still current (no new messages since)."""
         try:
-            current = await self.redis.get(f"batch:{phone}")
+            current = await self.redis.get(f"buffer_batch:{phone}")
             if not current:
                 return False
             return current == batch_id
@@ -128,31 +128,16 @@ class RedisClient:
             print(f"[Redis] ❌ has_hit_hard_max failed: {e}", flush=True)
             return False
 
-    async def set_batch_id(self, phone: str, batch_id: str):
-        await self.redis.set(f"batch:{phone}", batch_id, ex=60)
-
-    async def get_batch_id(self, phone: str) -> Optional[str]:
-        return await self.redis.get(f"batch:{phone}")
-
-    async def is_processing(self, phone: str) -> bool:
-        return await self.redis.exists(f"processing:{phone}") > 0
-
-    async def set_processing(self, phone: str, active: bool = True):
-        if active:
-            await self.redis.set(f"processing:{phone}", "1", ex=60)
-        else:
-            await self.redis.delete(f"processing:{phone}")
-
-    # ═══ GENERATION TRACKING (for interrupt) ═══
     async def set_generating(self, phone: str):
         try:
             await self.redis.set(f"generating:{phone}", "1", ex=120)
+            await self.redis.set(f"generating_ts:{phone}", str(time.time()), ex=120)
         except Exception as e:
             print(f"[Redis] ❌ set_generating failed: {e}", flush=True)
 
     async def clear_generating(self, phone: str):
         try:
-            await self.redis.delete(f"generating:{phone}")
+            await self.redis.delete(f"generating:{phone}", f"generating_ts:{phone}")
         except Exception as e:
             print(f"[Redis] ❌ clear_generating failed: {e}", flush=True)
 
@@ -163,11 +148,12 @@ class RedisClient:
             print(f"[Redis] ❌ is_generating failed: {e}", flush=True)
             return False
 
-    async def has_new_messages_during_generation(self, phone: str) -> bool:
+    async def has_new_messages(self, phone: str) -> bool:
+        """Check if new messages arrived in buffer (during generation)."""
         try:
             return await self.redis.llen(f"buffer:{phone}") > 0
         except Exception as e:
-            print(f"[Redis] ❌ has_new_messages_during_generation failed: {e}", flush=True)
+            print(f"[Redis] ❌ has_new_messages failed: {e}", flush=True)
             return False
 
     async def lrange(self, key: str, start: int, stop: int) -> List[str]:
@@ -183,5 +169,36 @@ class RedisClient:
 
     async def mark_calendly_sent(self, phone: str):
         await self.redis.set(f"calendly_sent:{phone}", "1", ex=86400 * 7)
+
+    async def check_and_clear_stale_generation(self, phone: str):
+        """
+        If generating flag has been set for more than 2 minutes,
+        something crashed. Clear it so new messages can process.
+        """
+        try:
+            ts_key = f"generating_ts:{phone}"
+            gen_key = f"generating:{phone}"
+            
+            ts = await self.redis.get(ts_key)
+            if ts and (time.time() - float(ts)) > 120:
+                print(f"[Redis] ⚠️ Stale generation flag for {phone}, clearing", flush=True)
+                await self.redis.delete(gen_key, ts_key)
+        except Exception as e:
+            print(f"[Redis] ❌ check_and_clear_stale_generation failed: {e}", flush=True)
+
+    async def get(self, key: str) -> Optional[str]:
+        """Generic get for RAG context."""
+        try:
+            return await self.redis.get(key)
+        except Exception as e:
+            print(f"[Redis] ❌ get failed for {key}: {e}", flush=True)
+            return None
+
+    async def set(self, key: str, value: str, ex: int = None):
+        """Generic set for RAG context initialization."""
+        try:
+            await self.redis.set(key, value, ex=ex)
+        except Exception as e:
+            print(f"[Redis] ❌ set failed for {key}: {e}", flush=True)
 
 redis_client = RedisClient()

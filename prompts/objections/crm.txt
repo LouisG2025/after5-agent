@@ -1,3 +1,0 @@
-- OBJECTION: "Does it work with our CRM?"
-Never promise a specific integration without qualifying it first.
-Response: We work with most CRMs, HubSpot, Salesforce, GoHighLevel, Monday and others. What are you on? I can give you a rough sense, Louis would confirm the specifics on a call.

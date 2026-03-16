@@ -1,3 +1,0 @@
-- OBJECTION: "We get most leads during business hours anyway"
-Probe whether this is actually true. Even in hours, speed-to-lead matters.
-Response: How fast does someone typically get back to people, and does that hold up evenings and weekends? If you're genuinely not missing anything, don't fix what's not broken. If there's any gap at all, that's where the money is.

@@ -8,116 +8,64 @@ logger = logging.getLogger(__name__)
 WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
 
 
-async def download_audio(audio_url: str, custom_headers: dict = None) -> bytes | None:
+async def process_voice_note_from_media_id(media_id: str) -> str | None:
     """
-    Download audio file from a media URL.
-    
-    Supports MessageBird and custom headers (e.g., for WhatsApp).
-    
-    Args:
-        audio_url: URL of the audio file
-        custom_headers: Optional headers for authentication
-    
-    Returns:
-        Audio file bytes or None on error
+    Full pipeline for WhatsApp Cloud API voice notes:
+    1. Get media URL from media_id
+    2. Download audio bytes
+    3. Transcribe with Whisper
     """
+    # Step 1: Get media URL
     try:
-        headers = custom_headers if custom_headers is not None else {}
-        
-        # Fallback to MessageBird auth if no custom headers provided and it's a MB URL
-        if not headers and "media.messagebird.com" not in audio_url:
-            headers["Authorization"] = f"AccessKey {settings.MESSAGEBIRD_API_KEY}"
-        
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            logger.info(f"Downloading audio from: {audio_url}")
-            response = await client.get(audio_url, headers=headers)
-            
-            if response.status_code == 200:
-                logger.info(f"Audio downloaded: {len(response.content)} bytes")
-                return response.content
-            else:
-                logger.error(f"Audio download failed: {response.status_code} - {response.text}")
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"https://graph.facebook.com/v21.0/{media_id}",
+                headers={"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"}
+            )
+            if resp.status_code != 200:
+                logger.error(f"Media URL fetch failed: {resp.status_code} - {resp.text}")
                 return None
-                
+            media_url = resp.json().get("url")
+    except Exception as e:
+        logger.error(f"Media URL error: {e}")
+        return None
+    
+    if not media_url:
+        logger.error("No media URL returned from Meta API")
+        return None
+    
+    # Step 2: Download audio (URL expires in ~5 minutes!)
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.get(
+                media_url,
+                headers={"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"}
+            )
+            if resp.status_code != 200:
+                logger.error(f"Audio download failed: {resp.status_code} - {resp.text}")
+                return None
+            audio_bytes = resp.content
+            logger.info(f"Audio downloaded: {len(audio_bytes)} bytes")
     except Exception as e:
         logger.error(f"Audio download error: {e}")
         return None
-
-
-async def transcribe_audio(audio_bytes: bytes, filename: str = "voice.ogg") -> str | None:
-    """
-    Transcribe audio using OpenAI Whisper API.
     
-    Args:
-        audio_bytes: Raw audio file bytes (OGG Opus from WhatsApp)
-        filename: Filename hint for Whisper (helps with format detection)
-    
-    Returns:
-        Transcribed text or None on error
-    """
-    if not settings.OPENAI_API_KEY:
-        logger.error("OPENAI_API_KEY not set — cannot transcribe voice notes")
-        return None
-    
+    # Step 3: Transcribe with Whisper
     try:
-        # Whisper API expects multipart/form-data with file upload
-        files = {
-            "file": (filename, io.BytesIO(audio_bytes), "audio/ogg"),
-        }
-        data = {
-            "model": "whisper-1",
-            # "language": "en",  # Auto-detect for multi-lang support
-        }
-        headers = {
-            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-        }
-        
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
+            resp = await client.post(
                 WHISPER_URL,
-                headers=headers,
-                files=files,
-                data=data,
+                headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                files={"file": ("voice.ogg", io.BytesIO(audio_bytes), "audio/ogg")},
+                data={"model": "whisper-1", "language": "en"},
             )
-            
-            if response.status_code == 200:
-                result = response.json()
-                text = result.get("text", "").strip()
-                logger.info(f"Transcription result: {text[:100]}...")
+            if resp.status_code == 200:
+                text = resp.json().get("text", "").strip()
+                logger.info(f"Transcription: {text[:80]}...")
                 return text if text else None
             else:
-                logger.error(f"Whisper API error: {response.status_code} — {response.text}")
+                logger.error(f"Whisper error: {resp.status_code} - {resp.text}")
                 return None
-                
     except Exception as e:
         logger.error(f"Transcription error: {e}")
         return None
-
-
-async def process_voice_note(audio_url: str, headers: dict = None) -> str | None:
-    """
-    Full pipeline: download audio → transcribe → return text.
-    
-    This is the main function to call from webhook.py.
-    
-    Args:
-        audio_url: URL of the audio file
-        headers: Optional auth headers for download
-    
-    Returns:
-        Transcribed text or None if transcription failed
-    """
-    # Step 1: Download audio
-    audio_bytes = await download_audio(audio_url, custom_headers=headers)
-    if not audio_bytes:
-        logger.error("Failed to download voice note audio")
-        return None
-    
-    # Step 2: Transcribe
-    text = await transcribe_audio(audio_bytes)
-    if not text:
-        logger.error("Failed to transcribe voice note")
-        return None
-    
-    logger.info(f"Voice note transcribed successfully: {text[:50]}...")
-    return text

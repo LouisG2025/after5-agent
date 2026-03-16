@@ -1,7 +1,7 @@
 import logging
 from app.config import settings
 from app import messagebird_client as bird
-from app import whatsapp_cloud_client as cloud
+from app import whatsapp_client as cloud
 
 logger = logging.getLogger(__name__)
 

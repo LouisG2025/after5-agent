@@ -48,11 +48,11 @@ def detect_personality_type(messages: list) -> str:
     
     avg_length = sum(len(m.split()) for m in messages) / len(messages)
     has_questions = any("?" in m for m in messages)
-    has_detail = any(len(m.split()) > 25 for m in messages)
+    has_detail = any(len(m.split()) > 12 for m in messages)
     has_warmth = any(w in " ".join(messages).lower() for w in 
                      ["haha", "lol", "honestly", "to be fair", "you know"])
     
-    if avg_length < 10 and not has_detail:
+    if avg_length < 8 and not has_detail:
         return "driver"       # Short, direct — wants efficiency
     elif has_detail and has_questions:
         return "analytical"   # Detailed, questioning — wants thoroughness
