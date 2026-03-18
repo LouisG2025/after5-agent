@@ -263,8 +263,8 @@ async def _process_with_interrupt_protection(
             pass
 
         # 2. Mark as read (blue ticks)
-        last_msg_id_bytes = await redis_client.redis.get(f"last_msg_id:{phone}")
-        last_msg_id = last_msg_id_bytes.decode('utf-8') if last_msg_id_bytes else ""
+        last_msg_id_val = await redis_client.redis.get(f"last_msg_id:{phone}")
+        last_msg_id = last_msg_id_val.decode('utf-8') if isinstance(last_msg_id_val, bytes) else (last_msg_id_val or "")
         
         if last_msg_id:
             await asyncio.sleep(random.uniform(1, 4))
