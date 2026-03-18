@@ -49,7 +49,10 @@ async def send_chunked_messages(to: str, chunks: list[str], conversation_id: str
     """Send multiple messages with realistic typing delays and interrupt check."""
     from app.redis_client import redis_client
     for i, chunk in enumerate(chunks):
-        # Thinking/Typing Delay (Human feel)
+        # 1. Start Typing Indicator
+        await send_typing_indicator(to)
+
+        # 2. Thinking/Typing Delay (Human feel)
         if i == 0:
             delay = random.uniform(2.0, 4.0)
         else:
@@ -62,6 +65,7 @@ async def send_chunked_messages(to: str, chunks: list[str], conversation_id: str
                 logger.info(f"Interrupt: New message during delay for {to}. Aborting.")
                 return
         await asyncio.sleep(delay % 1.0)
+
             
         await send_message(to, chunk)
 
@@ -98,9 +102,7 @@ async def send_typing_indicator(to: str, message_id: str = "") -> bool:
     """Send a typing indicator using sender_action."""
     payload = {
         "messaging_product": "whatsapp",
-        "recipient_type": "individual",
         "to": _to_wa_phone(to),
-        "type": "sender_action",
         "sender_action": "typing_on"
     }
     try:
