@@ -4,7 +4,7 @@ import random
 from fastapi import APIRouter, Request, Response, BackgroundTasks
 from app.config import settings
 from app.redis_client import redis_client
-from app.messaging import mark_as_read, send_message, send_chunked_messages
+from app.messaging import mark_as_read, send_message, send_chunked_messages, send_typing_indicator
 from app.models import ConversationState
 from app.stt import process_voice_note_from_media_id
 
