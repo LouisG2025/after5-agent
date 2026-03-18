@@ -445,7 +445,7 @@ class PromptAssembler:
             "DISCOVERY":   "Currently understanding needs. Ask smart questions, don't pitch yet.",
             "PITCHED":     "Proposal shared. Be ready for objections. Follow up if no response.",
             "NEGOTIATION": "Customer is comparing/deciding. Handle objections, show value.",
-            "CLOSING":     "Near commitment. Use closing techniques. Don't over-sell.",
+            "BOOKING":     "Lead is booking. Provide the Calendly link if not sent. IMPORTANT: If lead says 'I booked it', do NOT confirm. Say: 'Great! I'll check my system and confirm once the notification hits my desk.'",
             "CLOSED_WON":  "Deal done! Confirm onboarding steps. Be excited but professional.",
             "CLOSED_LOST": "Didn't convert. Be gracious. Leave door open for future.",
             "FOLLOWUP":    "Follow-up mode. Add value with each touch. Don't be annoying.",
