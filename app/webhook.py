@@ -262,6 +262,10 @@ async def _process_with_interrupt_protection(
             # We'll skip complex cooldown check here and let conversation engine handle or just reject.
             pass
 
+        # 2. Mark as read (blue ticks)
+        last_msg_id_bytes = await redis_client.redis.get(f"last_msg_id:{phone}")
+        last_msg_id = last_msg_id_bytes.decode('utf-8') if last_msg_id_bytes else ""
+        
         if last_msg_id:
             await asyncio.sleep(random.uniform(1, 4))
             # conversation_id not strictly needed for Cloud but required by proxy
