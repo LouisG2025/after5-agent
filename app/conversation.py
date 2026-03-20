@@ -27,30 +27,6 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         print(f"\n[Conversation] 🚀 Starting process for {phone}: '{message[:50]}...'", flush=True)
         logger.info("\n[Conversation] 🚀 Starting process for %s: '%s...'", phone, message[:50])
 
-        # Step 3: Handle /reset command
-        if message.strip().lower() == "/reset":
-            logger.info("[Conversation] Reset command detected for %s. Clearing session.", phone)
-            session = {
-                "state": ConversationState.OPENING,
-                "history": [],
-                "turn_count": 0,
-                "lead_data": {"phone": phone},
-                "low_content_count": 0
-            }
-            await redis_client.save_session(phone, session)
-            
-            # Sync with Supabase (Critical for live checks)
-            if lead_id:
-                await tracker.update_state(lead_id, "Opening")
-                
-            await send_message(phone, "I've reset the conversation for you. Please clear the chat on your end and start a new one whenever you're ready.")
-            await redis_client.clear_generating(phone)
-            return
-
-        # Step 4: Handle Timing Sequence (Moved to webhook/client for instant feel)
-        # We skip the 5s wait here to start processing immediately.
-        # Human-like delays are handled in send_chunked_messages.
-
         # Step 4: Get session and lead data
         session = await redis_client.get_session(phone)
         if not session:
@@ -67,6 +43,28 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         
         lead_data = session.get("lead_data", {})
         lead_id = lead_data.get("id")
+
+        # Step 3: Handle /reset command
+        if message.strip().lower() == "/reset":
+            logger.info("[Conversation] Reset command detected for %s. Clearing session.", phone)
+            session = {
+                "state": ConversationState.OPENING,
+                "history": [],
+                "turn_count": 0,
+                "lead_data": lead_data, # Reuse existing lead_data
+                "low_content_count": 0
+            }
+            await redis_client.save_session(phone, session)
+            
+            # Sync with Supabase (Critical for live checks)
+            if lead_id:
+                await tracker.update_state(lead_id, "Opening")
+                
+            await send_message(phone, "I've reset the conversation for you. Please clear the chat on your end and start a new one whenever you're ready.")
+            await redis_client.clear_generating(phone)
+            return
+
+        # ... (Step 4 is moved up, so we'll just skip it below) ...
 
         # Step 5: Start Typing Indicator (Simulates "Writing...")
         # We start this BEFORE LLM call so the user knows we are responding
