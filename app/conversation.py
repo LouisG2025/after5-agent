@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 import random
 from app.signals import detect_interest_level, detect_personality_type, get_approach_instructions
 
-async def process_conversation(phone: str, message: str, conversation_id: str = "", message_id: str = ""):
+async def process_conversation(phone: str, message: str, conversation_id: str = "", message_id: str = "", last_message_ts: float = 0):
     """Main conversation engine logic."""
     try:
         print(f"\n[Conversation] 🚀 Starting process for {phone}: '{message[:50]}...'", flush=True)
@@ -121,10 +121,6 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         # Step 10: Calendly Resend Logic (Fix 3)
         response_text = await check_and_send_calendly(phone, response_text, session)
 
-async def process_conversation(phone: str, message: str, conversation_id: str = "", message_id: str = "", last_message_ts: float = 0):
-    """Main conversation engine logic."""
-    try:
-        # (Existing logic...)
         # Step 11: Send natural multi-bubble response
         if response_text:
             print(f"[Conversation] 📤 Splitting and sending multi-bubble response to {phone}", flush=True)
