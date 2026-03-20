@@ -47,13 +47,17 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         # Handle Simulation Data collection if #reset was called
         if session.get("sim_collecting"):
             from app.outbound import send_initial_outreach
+            import re
             logger.info("[Conversation] 🧪 Processing Simulation data from %s: %s", phone, message)
             
-            # Simple splitter: commas or spaces
-            parts = [p.strip() for p in message.split(",")]
-            name = parts[0] if len(parts) > 0 else "there"
-            company = parts[1] if len(parts) > 1 else "Horizon Estates"
-            industry = parts[2] if len(parts) > 2 else "Real Estate"
+            # Robust extraction using Regex
+            name_m = re.search(r'(?:Name|Naam)\s*[–-]\s*([^\n,]+)', message, re.I)
+            comp_m = re.search(r'(?:Company|Agency|Business)(?:\s+name)?\s*[–-]\s*([^\n,]+)', message, re.I)
+            ind_m = re.search(r'(?:Industry|Field|Sector)\s*[–-]\s*([^\n,]+)', message, re.I)
+
+            name = name_m.group(1).strip() if name_m else "there"
+            company = comp_m.group(1).strip() if comp_m else "Horizon Estates"
+            industry = ind_m.group(1).strip() if ind_m else "Real Estate"
 
             fake_form = {
                 "first_name": name,

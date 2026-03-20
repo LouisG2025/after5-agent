@@ -65,14 +65,12 @@ async def send_initial_outreach(name: str, phone_raw: str, company: str, form_da
             # Log the message to Supabase
             await tracker.log_outbound(lead_id, first_message_content)
         else:
-            logger.warning("[Outreach] ⚠️ Template send failed. Falling back to raw text (Note: This may fail for new conversations)")
+            logger.warning("[Outreach] ⚠️ Template send failed. Falling back to raw text.")
             
             # 5. Fallback: Human-like chunked text
             chunks = chunk_message(first_message_content)
-            outreach_delay = calculate_typing_delay(chunks[0])
             
-            await send_typing_indicator(sender_phone)
-            await asyncio.sleep(outreach_delay)
+            # Note: typing indicator and delays are now handled INSIDE send_chunked_messages
             await send_chunked_messages(sender_phone, chunks)
             
             # Log to Supabase
