@@ -44,23 +44,56 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
         lead_data = session.get("lead_data", {})
         lead_id = lead_data.get("id")
 
-        # Step 3: Handle /reset command
-        if message.strip().lower() == "/reset":
+        # Step 3: Handle /reset and #reset commands
+        cmd = message.strip().lower()
+        if cmd == "/reset" or cmd == "#reset":
             logger.info("[Conversation] Reset command detected for %s. Clearing session.", phone)
+            
+            # 1. Clear Redis session
             session = {
                 "state": ConversationState.OPENING,
                 "history": [],
                 "turn_count": 0,
-                "lead_data": lead_data, # Reuse existing lead_data
+                "lead_data": lead_data, # Reuse existing lead_data (phone, name etc)
                 "low_content_count": 0
             }
             await redis_client.save_session(phone, session)
             
-            # Sync with Supabase (Critical for live checks)
+            # 2. Sync with Supabase (Critical for live checks)
             if lead_id:
                 await tracker.update_state(lead_id, "Opening")
+
+            # 3. If #reset, trigger fake outbound flow
+            if cmd == "#reset":
+                from app.outbound import send_initial_outreach
+                name = lead_data.get("first_name") or "there"
+                company = "Horizon Estates"
+                fake_form = {
+                    "first_name": name,
+                    "company": company,
+                    "industry": "Real Estate",
+                    "role": "Director",
+                    "message": "I want to automate my real estate agency discovery calls.",
+                    "source": "Fake Reset Trigger"
+                }
                 
-            await send_message(phone, "I've reset the conversation for you. Please clear the chat on your end and start a new one whenever you're ready.")
+                # Update lead in Supabase with fake data first
+                if lead_id:
+                    client = await supabase_client.get_client()
+                    await client.table("leads").update({
+                        "company": company,
+                        "industry": "Real Estate",
+                        "form_message": fake_form["message"]
+                    }).eq("id", lead_id).execute()
+
+                # Trigger outreach in background task
+                print(f"[Conversation] 🧪 Triggering fake outbound flow for {phone}", flush=True)
+                asyncio.create_task(send_initial_outreach(name, phone, company, fake_form))
+                
+                await send_message(phone, "🚀 #reset: Simulation started! I've cleared your session and triggered a fake form submission for 'Horizon Estates'. Expect the outbound flow to start in 15 seconds...")
+            else:
+                await send_message(phone, "I've reset the conversation for you. Please clear the chat on your end and start a new one whenever you're ready.")
+            
             await redis_client.clear_generating(phone)
             return
 
