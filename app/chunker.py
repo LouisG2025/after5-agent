@@ -46,6 +46,79 @@ def chunk_message(text: str) -> list[str]:
     return chunks or [text]
 
 
+def format_message(text: str) -> str:
+    """
+    Format a single message bubble for readability within WhatsApp.
+    Adds line breaks between distinct thoughts within one message.
+    This is FORMATTING not CHUNKING. The message stays as one bubble.
+    
+    Compliments the system prompt rules:
+    - 1 to 2 sentences for most replies (short messages pass through untouched)
+    - When a slightly longer message is needed, drop a line break between thoughts
+    - Questions always get their own line at the end
+    - Drop the full stop from the very last sentence
+    - Never use dashes, only commas
+    - Preserve any intentional line breaks from the LLM
+    """
+    text = text.strip()
+    if not text:
+        return text
+    
+    # If LLM already included line breaks, preserve them and just clean up
+    if "\n" in text:
+        lines = [line.strip() for line in text.split("\n") if line.strip()]
+        # Drop full stop from last line (prompt rule: drop full stop on last sentence)
+        if lines and lines[-1].endswith("."):
+            lines[-1] = lines[-1][:-1]
+        return "\n\n".join(lines)
+    
+    # Split into sentences for processing
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    
+    # Short messages (1-2 sentences) pass through with minimal formatting
+    # This matches the prompt rule: "1 to 2 sentences for most replies"
+    if len(sentences) <= 2:
+        result = " ".join(sentences)
+        # Drop full stop from end (prompt rule)
+        if result.endswith("."):
+            result = result[:-1]
+        return result
+    
+    # 3+ sentences: group into short paragraphs with blank lines between
+    # This matches the prompt rule: "drop a line break between thoughts for white space"
+    paragraphs = []
+    current_para = []
+    
+    for i, sentence in enumerate(sentences):
+        is_last = (i == len(sentences) - 1)
+        is_question = sentence.rstrip().endswith("?")
+        
+        # Questions get their own paragraph (prompt rule: question gets its own moment)
+        if is_question and current_para:
+            paragraphs.append(" ".join(current_para))
+            current_para = [sentence]
+        else:
+            current_para.append(sentence)
+        
+        # Break into new paragraph every 2 sentences to keep it scannable
+        if len(current_para) >= 2 and not is_last and not is_question:
+            paragraphs.append(" ".join(current_para))
+            current_para = []
+    
+    if current_para:
+        paragraphs.append(" ".join(current_para))
+    
+    # Join paragraphs with blank line (WhatsApp renders \n\n as visible gap)
+    result = "\n\n".join(paragraphs)
+    
+    # Drop full stop from the very last character (prompt rule)
+    if result.endswith("."):
+        result = result[:-1]
+    
+    return result
+
+
 def calculate_blue_tick_delay(last_lead_message_time: float, current_time: float) -> float:
     """
     Calculate delay before marking message as read (blue tick).

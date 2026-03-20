@@ -53,7 +53,7 @@ async def send_chunked_messages(
     message_id: str = ""
 ) -> None:
     """Send multiple messages with realistic human-like timing sequence."""
-    from app.chunker import calculate_chunk_sequence
+    from app.chunker import calculate_chunk_sequence, format_message
     from app.redis_client import redis_client
     import time
 
@@ -95,7 +95,8 @@ async def send_chunked_messages(
             await asyncio.sleep(seq["review_pause"])
 
         # 6. Send Bubble
-        await send_message(to, chunk)
+        formatted_chunk = format_message(chunk)
+        await send_message(to, formatted_chunk)
 
 
 async def send_template_message(to: str, template_name: str, language_code: str = "en_US", components: list = None) -> dict | None:
