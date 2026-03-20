@@ -56,8 +56,15 @@ async def send_initial_outreach(name: str, phone_raw: str, company: str, form_da
             }
         ]
         
-        logger.info("[Outreach] 🚀 Attempting template outreach for %s (%s)", name, sender_phone)
-        template_res = await send_template_message(sender_phone, template_name, components=components)
+        # Simulation Reliability: Skip template for testing since Meta status is flaky
+        is_sim = form_data and form_data.get("source") == "Interactive Reset Simulation"
+        
+        if is_sim:
+            template_res = None
+            logger.info("[Outreach] 🧪 Simulation detected: skipping template for reliability.")
+        else:
+            logger.info("[Outreach] 🚀 Attempting template outreach for %s (%s)", name, sender_phone)
+            template_res = await send_template_message(sender_phone, template_name, components=components)
         
         if template_res:
             logger.info("[Outreach] ✅ Template sent successfully via WhatsApp Cloud API")
