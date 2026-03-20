@@ -38,6 +38,11 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
                 "low_content_count": 0
             }
             await redis_client.save_session(phone, session)
+            
+            # Sync with Supabase (Critical for live checks)
+            if lead_id:
+                await tracker.update_state(lead_id, "Opening")
+                
             await send_message(phone, "I've reset the conversation for you. Please clear the chat on your end and start a new one whenever you're ready.")
             await redis_client.clear_generating(phone)
             return
@@ -285,6 +290,7 @@ async def build_enhanced_context(session: dict, lead_data: dict, message: str, k
     lead_id = lead_data.get("id")
     live_state = session.get("state")
     latest_booking_info = None
+    is_new_booking = False
     
     if lead_id and (any(kw in msg_low for kw in booking_keywords) or session.get("state") in [ConversationState.BOOKING, ConversationState.CONFIRMED]):
         logger.info("[Conversation] 🔍 Performing live booking check for %s", lead_id)
@@ -295,10 +301,25 @@ async def build_enhanced_context(session: dict, lead_data: dict, message: str, k
         
         latest_booking = await tracker.get_latest_booking(lead_id)
         if latest_booking:
-            # Format human-readable time (e.g. "2024-03-20 14:30 UTC")
-            dt = latest_booking.get("created_at")
-            if dt:
-                latest_booking_info = f"Latest booking found on your end: {dt} (Status: {latest_booking.get('status')})"
+            created_at_str = latest_booking.get("created_at")
+            if created_at_str:
+                try:
+                    # Created_at is usually ISO format like "2024-03-20T14:30:00+00:00"
+                    booking_time = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                    now = datetime.now(timezone.utc)
+                    diff = (now - booking_time).total_seconds()
+                    
+                    # Freshness Check: Is this a NEW booking made in the last 15 minutes?
+                    is_new_booking = diff < 900 # 15 minutes
+                    
+                    latest_booking_info = (
+                        f"Latest booking: {created_at_str} "
+                        f"(Status: {latest_booking.get('status')}, "
+                        f"NEW_BOOKING_JUST_CONFIRMED: {str(is_new_booking).upper()})"
+                    )
+                except Exception as e:
+                    logger.error(f"[Conversation] Error parsing booking date: {e}")
+                    latest_booking_info = f"Latest booking: {created_at_str} (Status: {latest_booking.get('status')})"
 
     # Pass everything to llm_client
     messages = await llm_client.build_context(session, lead_data, message, knowledge_context)
@@ -306,6 +327,10 @@ async def build_enhanced_context(session: dict, lead_data: dict, message: str, k
     # Add the latest_booking_info to the system prompt if found
     if latest_booking_info and messages and messages[0]["role"] == "system":
         messages[0]["content"] += f"\n\n═══ LIVE SYSTEM DATA ═══\n{latest_booking_info}\n"
+        if is_new_booking:
+            messages[0]["content"] += "IMPORTANT: A new booking was just detected in the system within the last 15 minutes. You MUST acknowledge this.\n"
+        else:
+            messages[0]["content"] += "IMPORTANT: No new booking found in the last 15 minutes. If the user claims they just booked, they are lying or the system hasn't updated. Tell them to wait a second or try again.\n"
 
     # 1. Fetch Relevant RAG Context
     rag_map = {
