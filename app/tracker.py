@@ -254,6 +254,30 @@ class AlbertTracker:
         except Exception as e:
             print(f"[Albert Tracker Error] cancel_booking: {e}")
 
+    async def get_conversation_state(self, lead_id: str) -> Optional[dict]:
+        """Fetch the latest state for a lead directly from Supabase."""
+        if not lead_id or lead_id == "unknown":
+            return None
+        try:
+            client = await supabase_client.get_client()
+            result = await client.table("conversation_state").select("*").eq("lead_id", lead_id).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"[Albert Tracker Error] get_conversation_state: {e}")
+            return None
+
+    async def get_latest_booking(self, lead_id: str) -> Optional[dict]:
+        """Fetch the most recent booking for a lead."""
+        if not lead_id or lead_id == "unknown":
+            return None
+        try:
+            client = await supabase_client.get_client()
+            result = await client.table("bookings").select("*").eq("lead_id", lead_id).order("created_at", desc=True).limit(1).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"[Albert Tracker Error] get_latest_booking: {e}")
+            return None
+
     # ─── LLM TRACKING ─────────────────────────────────────────
 
     async def log_llm_call(

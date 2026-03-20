@@ -269,8 +269,38 @@ async def check_and_send_calendly(phone: str, text: str, session: dict) -> str:
 
 async def build_enhanced_context(session: dict, lead_data: dict, message: str, knowledge_context: str = "") -> list:
     """Builds enhanced LLM context with BANT, Form data and Knowledge base context."""
+    
+    # 0. Live Booking Verification (New)
+    # If the user mentions booking, or we are in a booking-related state, 
+    # re-fetch the absolute truth from the database to avoid Redis lag or stale cache.
+    msg_low = message.lower()
+    booking_keywords = ["booked", "done", "scheduled", "appointment", "calendar", "confirm"]
+    
+    lead_id = lead_data.get("id")
+    live_state = session.get("state")
+    latest_booking_info = None
+    
+    if lead_id and (any(kw in msg_low for kw in booking_keywords) or session.get("state") in [ConversationState.BOOKING, ConversationState.CONFIRMED]):
+        logger.info("[Conversation] 🔍 Performing live booking check for %s", lead_id)
+        db_state = await tracker.get_conversation_state(lead_id)
+        if db_state:
+            session["state"] = db_state.get("current_state", session["state"])
+            live_state = session["state"]
+        
+        latest_booking = await tracker.get_latest_booking(lead_id)
+        if latest_booking:
+            # Format human-readable time (e.g. "2024-03-20 14:30 UTC")
+            dt = latest_booking.get("created_at")
+            if dt:
+                latest_booking_info = f"Latest booking found on your end: {dt} (Status: {latest_booking.get('status')})"
+
+    # Pass everything to llm_client
     messages = await llm_client.build_context(session, lead_data, message, knowledge_context)
     
+    # Add the latest_booking_info to the system prompt if found
+    if latest_booking_info and messages and messages[0]["role"] == "system":
+        messages[0]["content"] += f"\n\n═══ LIVE SYSTEM DATA ═══\n{latest_booking_info}\n"
+
     # 1. Fetch Relevant RAG Context
     rag_map = {
         ConversationState.OPENING: "rag:sales:psychology",
