@@ -100,12 +100,34 @@ async def send_template_message(to: str, template_name: str, language_code: str 
 
 async def send_typing_indicator(to: str, message_id: str = "") -> bool:
     """
-    WhatsApp Cloud API does not support typing indicators via the /messages endpoint.
-    The sender_action field is specific to Facebook Messenger, not WhatsApp Cloud API.
-    Human-like delay is handled in send_chunked_messages instead.
+    Send a typing indicator using the correct WhatsApp Cloud API format.
+    Requires a message_id (the incoming message to mark as read + show typing).
+    Auto-dismisses after 25 seconds or when next message is sent.
     """
-    logger.debug(f"[Typing] Skipped (not supported by WhatsApp Cloud API) for {to}")
-    return False
+    if not message_id:
+        logger.debug(f"[Typing] Skipped — no message_id provided for {to}")
+        return False
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": message_id,
+        "typing_indicator": {
+            "type": "text"
+        }
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"{BASE_URL}/messages", headers=_headers(), json=payload)
+            if resp.status_code == 200:
+                logger.info(f"[Typing] ✍️ Indicator sent for {to}")
+                return True
+            else:
+                logger.debug(f"[Typing] Failed: {resp.status_code} - {resp.text}")
+                return False
+    except Exception as e:
+        logger.error(f"[Typing] Error: {e}")
+        return False
 
 
 async def mark_as_read(message_id: str) -> None:

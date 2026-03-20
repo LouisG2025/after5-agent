@@ -158,7 +158,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
         # 5. Instant Blue Tick & Typing (Master UX)
         background_tasks.add_task(mark_as_read, "", message_id)
-        background_tasks.add_task(send_typing_indicator, sender_phone)
+        background_tasks.add_task(send_typing_indicator, sender_phone, message_id)
         
         # Fire delayed processor (3s rolling timer)
         background_tasks.add_task(_delayed_buffer_process, sender_phone, batch_id)
