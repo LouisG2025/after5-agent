@@ -87,8 +87,9 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
             return
 
         # Step 3: Handle /reset and #reset commands
-        cmd = message.strip().lower()
-        if cmd == "/reset" or cmd == "#reset":
+        raw_cmd = message.strip().lower()
+        if raw_cmd.startswith("/reset") or raw_cmd.startswith("#reset"):
+            cmd = "#reset" if "#reset" in raw_cmd else "/reset"
             logger.info("[Conversation] Reset command detected for %s. Clearing session.", phone)
             
             # 1. Clear Redis session
