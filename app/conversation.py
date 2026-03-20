@@ -110,7 +110,7 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
             if cmd == "#reset":
                 await send_message(phone, "🚀 #reset: Simulation started! Let's get your details.\n\nType your **Name, Company Name, Industry** (e.g. Nihal, Horizon Estates, Real Estate)")
             else:
-                await send_message(phone, "I've reset the conversation for you. Please clear the chat on your end and start a new one whenever you're ready.")
+                await send_message(phone, "I've reset the conversation for you. Please clear the chat on your end and start a new one whenever you're ready.\n\n(Tip: Use **#reset** if you want to start a full website form simulation!)")
             
             await redis_client.clear_generating(phone)
             return
