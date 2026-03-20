@@ -38,7 +38,7 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
                 "low_content_count": 0
             }
             await redis_client.save_session(phone, session)
-            await send_message(phone, "Reset kar liya hai, ab aap apni chats clear kardo phir new chat start karna")
+            await send_message(phone, "I've reset the conversation for you. Please clear the chat on your end and start a new one whenever you're ready.")
             await redis_client.clear_generating(phone)
             return
 
