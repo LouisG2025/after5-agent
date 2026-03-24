@@ -50,7 +50,8 @@ async def send_chunked_messages(
     chunks: list[str], 
     incoming_text: str = "", 
     last_message_ts: float = 0, 
-    message_id: str = ""
+    message_id: str = "",
+    interruptible: bool = True
 ) -> None:
     """Send multiple messages with realistic human-like timing sequence."""
     from app.chunker import calculate_chunk_sequence, format_message
@@ -81,11 +82,11 @@ async def send_chunked_messages(
         if seq["typing_delay"] > 0:
             await send_typing_indicator(to, message_id)
             
-            # Check for interrupts during typing
+            # Check for interrupts during typing (if interruptible)
             intervals = int(seq["typing_delay"] / 0.5)
             for _ in range(intervals):
                 await asyncio.sleep(0.5)
-                if await redis_client.has_new_messages(to):
+                if interruptible and await redis_client.has_new_messages(to):
                     logger.info(f"Interrupt: New message during typing for {to}. Aborting.")
                     return
             await asyncio.sleep(seq["typing_delay"] % 0.5)

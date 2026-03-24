@@ -106,7 +106,7 @@ async def send_initial_outreach(name: str, phone_raw: str, company: str, form_da
             
             # Note: typing indicator and delays are handled INSIDE send_chunked_messages.
             # This is where the long delays (>30s) happen.
-            await send_chunked_messages(sender_phone, chunks)
+            await send_chunked_messages(sender_phone, chunks, interruptible=False)
             
             # Log to Supabase
             await tracker.log_outbound(lead_id, first_message_content)
@@ -145,7 +145,7 @@ async def send_follow_up_message(lead_id: str, name: str, phone: str):
         # 2. Human-like delivery — bypass chunking for follow-up template
         from app.chunker import chunk_message
         chunks = chunk_message(follow_up_content, is_template=True)
-        await send_chunked_messages(phone, chunks)
+        await send_chunked_messages(phone, chunks, interruptible=False)
         
         # 3. Log to Supabase
         await tracker.log_outbound(lead_id, follow_up_content)
