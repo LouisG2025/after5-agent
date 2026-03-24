@@ -42,9 +42,13 @@ def chunk_message(text: str, is_template: bool = False) -> list[str]:
         if ps_match:
             text = text[:ps_match.start()].strip() + "|||" + text[ps_match.start():].strip()
             return chunk_message(text)
-        # 2. Fallback: Do not split. Trust the LLM decision.
-        # If the LLM didn't use ||| markers, send as single message.
-        chunks = [text]
+        # 2. Smart split on double newlines
+        if "\n\n" in text:
+            chunks = [c.strip() for c in text.split("\n\n") if c.strip()]
+        else:
+            # 3. Fallback: Do not split. Trust the LLM decision.
+            # If the LLM didn't use ||| markers or double newlines, send as single message.
+            chunks = [text]
 
     # Final cleanup and hard cap
     chunks = [c.strip() for c in chunks if c.strip()]
