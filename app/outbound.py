@@ -12,7 +12,9 @@ from app.whatsapp_client import (
 from app.redis_client import redis_client
 from app.models import ConversationState
 from app.tracker import AlbertTracker
-from app.chunker import chunk_message, calculate_typing_delay
+from app.chunker import chunk_message, calculate_typing_delay, format_message
+from app.templates import OUTREACH_TEMPLATES, FOLLOW_UP_TEMPLATE
+import random
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -43,7 +45,8 @@ async def send_initial_outreach(name: str, phone_raw: str, company: str, form_da
         await asyncio.sleep(15)
         
         # 3. Outreach Content
-        first_message_content = f"Hey {name}, it's Albert here from After5! I noticed you just submitted an enquiry to try the demo, so here I am."
+        raw_template = random.choice(OUTREACH_TEMPLATES)
+        first_message_content = raw_template.format(name=name, company_name=company)
         
         # 4. Attempt Template Outreach (Highly Recommended for WhatsApp Cloud API)
         template_name = "after5_outreach_2"
@@ -73,8 +76,8 @@ async def send_initial_outreach(name: str, phone_raw: str, company: str, form_da
         else:
             logger.warning("[Outreach] ⚠️ Template send failed. Falling back to raw text.")
             
-            # 5. Fallback: Human-like chunked text
-            chunks = chunk_message(first_message_content)
+            # 5. Fallback: Human-like delivery — bypass chunking for template
+            chunks = chunk_message(first_message_content, is_template=True)
             
             # Note: typing indicator and delays are now handled INSIDE send_chunked_messages
             await send_chunked_messages(sender_phone, chunks)
@@ -116,3 +119,46 @@ async def form_webhook(payload: dict):
         
     asyncio.create_task(send_initial_outreach(name, phone, company, payload))
     return {"status": "outreach_scheduled"}
+
+async def send_follow_up_message(lead_id: str, name: str, phone: str):
+    """Sends the 24-hour follow-up message."""
+    try:
+        tracker = AlbertTracker()
+        
+        # 1. Formatting the follow-up content
+        follow_up_content = FOLLOW_UP_TEMPLATE.format(name=name)
+        
+        logger.info("[Follow-up] 🚀 Sending follow-up to %s (%s)", name, phone)
+        
+        # 2. Human-like delivery — bypass chunking for follow-up template
+        from app.chunker import chunk_message
+        chunks = chunk_message(follow_up_content, is_template=True)
+        await send_chunked_messages(phone, chunks)
+        
+        # 3. Log to Supabase
+        await tracker.log_outbound(lead_id, follow_up_content)
+        
+        # 4. Initialize or Update session state
+        session = await redis_client.get_session(phone)
+        if session:
+            session["history"].append({"role": "assistant", "content": follow_up_content})
+            session["turn_count"] = session.get("turn_count", 1) + 1
+            await redis_client.save_session(phone, session)
+        
+        logger.info("[Follow-up] ✅ Follow-up sent to %s", name)
+
+    except Exception as e:
+        logger.error("[Follow-up] 🚨 Failed to send follow-up for %s: %s", name, e, exc_info=True)
+
+@router.post("/follow-up")
+async def trigger_follow_up(payload: dict = Body(...)):
+    """Admin endpoint to manually trigger a follow-up for a lead."""
+    lead_id = payload.get("lead_id")
+    name = payload.get("name")
+    phone = payload.get("phone")
+    
+    if not all([lead_id, name, phone]):
+        return {"error": "lead_id, name, and phone are required"}
+        
+    asyncio.create_task(send_follow_up_message(lead_id, name, phone))
+    return {"status": "follow_up_scheduled"}

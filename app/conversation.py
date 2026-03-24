@@ -41,6 +41,25 @@ async def process_conversation(phone: str, message: str, conversation_id: str = 
                 "low_content_count": 0
             }
         
+        
+        # V4: 24h Session Auto-Close — prevents Albert responding to stale sessions
+        last_updated_str = session.get("last_updated")
+        if last_updated_str and session.get("state") not in [ConversationState.CONFIRMED, ConversationState.CLOSED]:
+            try:
+                from datetime import timezone as _tz
+                lu_dt = datetime.fromisoformat(last_updated_str.replace("Z", "+00:00"))
+                lu_aware = lu_dt if lu_dt.tzinfo else lu_dt.replace(tzinfo=_tz.utc)
+                idle_seconds = (datetime.now(_tz.utc) - lu_aware).total_seconds()
+                if idle_seconds > 86400:  # 24 hours
+                    logger.info("[Conversation] 24h idle session auto-closing for %s", phone)
+                    session["state"] = ConversationState.CLOSED
+                    session["last_updated"] = datetime.now(_tz.utc).isoformat()
+                    await redis_client.save_session(phone, session)
+                    await redis_client.clear_generating(phone)
+                    return
+            except Exception as e:
+                logger.warning("[Conversation] 24h auto-close check failed for %s: %s", phone, e)
+
         lead_data = session.get("lead_data", {})
         lead_id = lead_data.get("id")
 

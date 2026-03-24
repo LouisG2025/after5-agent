@@ -12,6 +12,49 @@ from app.redis_client import redis_client
 
 tracker = AlbertTracker()
 
+def _compute_scoring_status(session: dict, current_message: str) -> str:
+    """
+    V4: Keyword-based qualification gate.
+    All three signals must be present before Albert is allowed to push for booking.
+    """
+    current_state = session.get('state', 'opening')
+
+    if current_state == 'escalation':
+        return 'escalate_to_human'
+
+    all_text = ' '.join(
+        [m['content'] for m in session.get('history', [])] + [current_message]
+    ).lower()
+
+    lead_gen_keywords = [
+        'leads', 'enquiries', 'submissions', 'forms', 'ads', 'google', 'meta',
+        'facebook', 'instagram', 'referrals', 'organic', 'inbound',
+        'calls', 'per month', 'a month', 'a week'
+    ]
+    has_lead_gen = any(kw in all_text for kw in lead_gen_keywords)
+
+    pain_keywords = [
+        'slow', 'missing', 'losing', 'after hours', 'evenings', 'weekends', 'overnight',
+        'manual', 'inconsistent', 'going cold', 'cold', 'no one', 'nobody',
+        'not following up', 'struggling', 'problem', 'issue', 'gap',
+        'nightmare', 'frustrating', 'bottleneck', 'missed', 'taking too long'
+    ]
+    has_pain = any(kw in all_text for kw in pain_keywords)
+
+    engagement_keywords = [
+        'how much', 'cost', 'price', 'how long', 'how does', 'how would', 'what would',
+        'integration', 'crm', 'interested', 'looks good', 'sounds good',
+        'makes sense', 'want to', 'book', 'call', 'yes', 'yeah', 'exactly'
+    ]
+    has_engagement = any(kw in all_text for kw in engagement_keywords)
+
+    if has_lead_gen and has_pain and has_engagement:
+        return 'push_for_booking'
+
+    return 'continue_discovery'
+
+
+
 class LLMClient:
     def __init__(self):
         self.api_key = settings.OPENROUTER_API_KEY
@@ -123,13 +166,11 @@ class LLMClient:
             raise e
 
     async def build_context(self, session: Dict[str, Any], lead_data: Dict[str, Any], message: str, knowledge_context: str = "") -> List[Dict[str, str]]:
-        """Builds the full LLM context using static V3 system prompt."""
+        """Builds the full LLM context using V4 system prompt + RAG."""
         # Always load static system prompt from file
         prompt_path = os.path.join(os.getcwd(), "prompts", "system_prompt.txt")
         with open(prompt_path, "r", encoding="utf-8") as f:
             core_prompt = f.read()
-
-        # 1. Dynamic Industry Injection
         industry_context = ""
         industry = (lead_data.get("industry") or "").lower()
         industry_map = {
@@ -260,14 +301,9 @@ class LLMClient:
         else:
             formatted_history = "(no conversation yet)"
 
-        # Basic logic for scoring_status based on current state
+        # V4: keyword-based scoring_status — inspects conversation history for qualification signals
         current_state_val = session.get("state", "opening")
-        if current_state_val == "booking_push":
-            scoring_status = "push_for_booking"
-        elif current_state_val == "escalation":
-            scoring_status = "escalate_to_human"
-        else:
-            scoring_status = "continue_discovery"
+        scoring_status = _compute_scoring_status(session, message)
 
         replacements = {
             "{{lead_name}}": lead_data.get("name", lead_data.get("first_name", "there")),

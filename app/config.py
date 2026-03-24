@@ -20,8 +20,8 @@ class Settings(BaseSettings):
 
     # OpenRouter
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
-    OPENROUTER_PRIMARY_MODEL: str = "openai/gpt-4o-mini"
-    OPENROUTER_FALLBACK_MODEL: str = "openai/gpt-4o-mini"
+    OPENROUTER_PRIMARY_MODEL: str = "anthropic/claude-sonnet-4-5"
+    OPENROUTER_FALLBACK_MODEL: str = "openai/gpt-4o"
     OPENROUTER_BANT_MODEL: str = "openai/gpt-4o-mini"
 
     # Redis
@@ -40,16 +40,16 @@ class Settings(BaseSettings):
 
     # App
     DEBUG: bool = False
-    # Input buffer settings (Master Prompt Fix 1)
-    INPUT_BUFFER_SECONDS: float = 3.0
+    # Input buffer settings (V4: 5 second silence window)
+    INPUT_BUFFER_SECONDS: float = 5.0
     INPUT_BUFFER_MAX_SECONDS: float = 8.0
     MAX_INTERRUPT_RETRIES: int = 2
-    
+
     # Low content spam threshold (Master Prompt Fix 4)
     LOW_CONTENT_THRESHOLD: int = 3
-    TYPING_DELAY_PER_CHAR: float = 0.03
+    TYPING_DELAY_PER_CHAR: float = 0.1  # V4: 0.1s per char (600 CPM)
     CHUNK_DELAY_SECONDS: float = 1.5
-    MAX_FOLLOWUPS: int = 2
+    MAX_FOLLOWUPS: int = 3  # V4: up to 3 follow-ups
     MAX_CHUNKS: int = 3
 
     # OpenAI / Whisper

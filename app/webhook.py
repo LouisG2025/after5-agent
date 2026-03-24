@@ -84,20 +84,36 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         # 3. Generation Cleanup (Safeguard 3)
         await redis_client.check_and_clear_stale_generation(sender_phone)
 
-        # 4. CLOSED State Check (Master Prompt Fix 4)
+        # 4. CLOSED State Check — V4: re-open returning leads after 24h
         session = await redis_client.get_session(sender_phone)
         if session and session.get("state") == ConversationState.CLOSED:
-            # Check 24h cooldown
             last_updated = session.get("last_updated")
             if last_updated:
                 from datetime import datetime
                 try:
                     lu_dt = datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
                     diff = (datetime.utcnow().replace(tzinfo=None) - lu_dt.replace(tzinfo=None)).total_seconds()
-                    if diff < 86400: # 24 hours
-                        logger.info(f"[Webhook] {sender_phone} is CLOSED. Ignoring message.")
+                    if diff < 86400:  # Still within 24h cooldown — ignore
+                        logger.info(f"[Webhook] {sender_phone} is CLOSED within 24h. Ignoring message.")
                         return {"status": "ignored", "reason": "closed_state"}
-                except: pass
+                    else:
+                        # 24h+ since close — re-open as returning lead
+                        logger.info(f"[Webhook] {sender_phone} returning after 24h+ — reopening session.")
+                        lead_name = session.get("lead_data", {}).get("first_name", "there")
+                        returning_template = f"Hey {lead_name}, Albert here again from After5. Glad you came back — what changed?"
+                        # Send template as single message
+                        await send_message(sender_phone, returning_template)
+                        # Re-initialise session
+                        new_session = {
+                            "state": ConversationState.OPENING,
+                            "history": [{"role": "assistant", "content": returning_template}],
+                            "turn_count": 1,
+                            "lead_data": session.get("lead_data", {}),
+                        }
+                        await redis_client.save_session(sender_phone, new_session)
+                        return {"status": "reopened"}
+                except Exception as e:
+                    logger.warning(f"[Webhook] CLOSED cooldown check failed: {e}")
         
         # 3. Dedup check
         
