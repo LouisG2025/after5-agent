@@ -408,6 +408,8 @@ You don't have to ask a discovery question in every reply. Let the conversation 
 
 
 One question per message. Always. Never stack.
+HARD RULE: If your reply contains the word "and" connecting two questions, you have broken the one question rule. Delete the second question. Send only the first. Ask the second one AFTER they reply.
+
 
 
 
