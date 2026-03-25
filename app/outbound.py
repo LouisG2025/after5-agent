@@ -15,15 +15,20 @@ from app.tracker import AlbertTracker
 from app.chunker import chunk_message, calculate_typing_delay, format_message
 from app.templates import OUTREACH_TEMPLATES, FOLLOW_UP_TEMPLATE
 from app.phone_utils import normalize_phone
+from app.name_utils import clean_personal_name, clean_company_name
 import random
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-async def send_initial_outreach(name: str, phone_raw: str, company: str, form_data: dict = None):
+async def send_initial_outreach(name_raw: str, phone_raw: str, company_raw: str, form_data: dict = None):
     """Sends the first outbound message after a delay."""
     try:
         tracker = AlbertTracker()
+        
+        # Normalize name and company for display and storage
+        name = clean_personal_name(name_raw)
+        company = clean_company_name(company_raw)
         
         # Normalize phone to internal format: whatsapp:+[digits]
         sender_phone = normalize_phone(phone_raw)
